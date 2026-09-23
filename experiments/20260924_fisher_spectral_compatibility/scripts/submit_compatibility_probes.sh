@@ -13,7 +13,7 @@ exact_output=$(
 echo "${exact_output}"
 
 fvp_output=$(
-    FVP_EPSILON=0.01 TIME_LIMIT=00:10:00 JOB_NAME=fsdp-fisher-grad-diff \
+    N_GPUS=2 FVP_EPSILON=0.01 TIME_LIMIT=00:10:00 JOB_NAME=fsdp-fisher-grad-diff-g2 \
     bash examples/dynamic_staleness/submit_slurm.sh fvp_compat_probe
 )
 echo "${fvp_output}"

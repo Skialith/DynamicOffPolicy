@@ -31,7 +31,7 @@ KL 预算或 rollout 更新次数。
 | 项目 | 设置 |
 | --- | --- |
 | 第一阶段模型 | 两层 toy MLP，只作 FSDP 与自动微分兼容性检查 |
-| 分布式路径 | 4×A800、legacy FSDP、`use_orig_params=False/True` 分别检查 |
+| 分布式路径 | legacy FSDP；精确 JVP 用 4×A800，梯度差分用 2×A800（仍发生参数分片） |
 | Fisher-HVP | frozen-anchor 全类别 KL；梯度中心差分；默认 `epsilon=1e-2` |
 | 数值自检 | 两种 FVP 路线一致性、能量恒等式、对称性、参数精确恢复、4 次 Power Iteration |
 | 第二阶段模型 | Qwen3-8B-Base；仅在第一阶段通过后提交 |
@@ -40,8 +40,15 @@ KL 预算或 rollout 更新次数。
 ## 启动、时间与状态
 
 第一阶段提交入口为
-[`submit_compatibility_probes.sh`](scripts/submit_compatibility_probes.sh)。截至
-2026-09-24，本地静态检查和非 FSDP 双精度公式自检通过，集群作业尚未提交。
+[`submit_compatibility_probes.sh`](scripts/submit_compatibility_probes.sh)。2026-09-24
+本地静态检查和非 FSDP 双精度公式自检通过。集群状态如下：
+
+- `use_orig_params=True` 精确 JVP：job 169831，4×A800，`PENDING (Priority)`；
+- 梯度中心差分 FVP：job 169835，2×A800，`PENDING (Priority)`；
+- 最初提交的 4 卡梯度差分 job 169832 在运行前主动取消，避免与 169835 重复占用资源。
+
+上述作业尚未产生兼容性结论。只有梯度差分 toy probe 通过后，才提交 Qwen3-8B
+Power Iteration 工程探针。
 
 本实验尚未提出结果分析方案，因此不创建 `docs/EXPERIMENT_RECORD.md`。
 
