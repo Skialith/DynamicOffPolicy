@@ -1,0 +1,313 @@
+{
+  "conversion": {
+    "fit": {
+      "constant_adjacent_kl": 0.00040724619355220963,
+      "median_c_eff": 148060188611.27545,
+      "log_gradient_slope": 1.1890841653408477,
+      "slope_four_cycle_block_bootstrap_95pct": [
+        0.039150805934250354,
+        1.5633416945080763
+      ],
+      "train_log_residual_q90": {
+        "constant": 0.5534912739019284,
+        "quadratic": 0.3590334023977083,
+        "free_power": 0.2908888405774367
+      }
+    },
+    "scores": {
+      "n4_fit": {
+        "observed_c_eff_median": 148060188611.27545,
+        "observed_c_eff_q25_q75": [
+          128712936241.75511,
+          183903710807.10327
+        ],
+        "constant": {
+          "n": 96,
+          "mean_abs_log_error": 0.2659459870840755,
+          "median_error_factor": 1.2027430478760572,
+          "mean_log_bias": -0.09860116992470602,
+          "underprediction_count": 48,
+          "max_underprediction_factor": 3.3373482175605713,
+          "upper_90_residual_coverage": 0.8958333333333334
+        },
+        "quadratic": {
+          "n": 96,
+          "mean_abs_log_error": 0.22416021494027025,
+          "median_error_factor": 1.1864385872593168,
+          "mean_log_bias": -0.01234712538652299,
+          "underprediction_count": 48,
+          "max_underprediction_factor": 1.7185736803713814,
+          "upper_90_residual_coverage": 0.8958333333333334
+        },
+        "free_power": {
+          "n": 96,
+          "mean_abs_log_error": 0.18092785483465723,
+          "median_error_factor": 1.1670932019602291,
+          "mean_log_bias": 2.9282132274488504e-15,
+          "underprediction_count": 48,
+          "max_underprediction_factor": 1.7883494280981305,
+          "upper_90_residual_coverage": 0.8958333333333334
+        }
+      },
+      "n8_age_1_4": {
+        "observed_c_eff_median": 140134191463.81396,
+        "observed_c_eff_q25_q75": [
+          117026429820.10931,
+          156449421108.86536
+        ],
+        "constant": {
+          "n": 96,
+          "mean_abs_log_error": 0.29029654352123374,
+          "median_error_factor": 1.2674144871576885,
+          "mean_log_bias": -0.029714087428690184,
+          "underprediction_count": 43,
+          "max_underprediction_factor": 2.579332464123581,
+          "upper_90_residual_coverage": 0.875
+        },
+        "quadratic": {
+          "n": 96,
+          "mean_abs_log_error": 0.192287650889979,
+          "median_error_factor": 1.1727393472891756,
+          "mean_log_bias": 0.08263797947050727,
+          "underprediction_count": 36,
+          "max_underprediction_factor": 1.4678069875792454,
+          "upper_90_residual_coverage": 0.9791666666666666
+        },
+        "free_power": {
+          "n": 96,
+          "mean_abs_log_error": 0.20004192489792905,
+          "median_error_factor": 1.1870136309104666,
+          "mean_log_bias": 0.08440345506411556,
+          "underprediction_count": 33,
+          "max_underprediction_factor": 1.7182791572030254,
+          "upper_90_residual_coverage": 0.9375
+        }
+      },
+      "n8_age_5_8_oracle": {
+        "observed_c_eff_median": 142307678367.97922,
+        "observed_c_eff_q25_q75": [
+          120512867881.48155,
+          168611350236.39325
+        ],
+        "constant": {
+          "n": 96,
+          "mean_abs_log_error": 0.287207229738637,
+          "median_error_factor": 1.227585641859704,
+          "mean_log_bias": -0.0525040990478395,
+          "underprediction_count": 46,
+          "max_underprediction_factor": 2.665976211242017,
+          "upper_90_residual_coverage": 0.875
+        },
+        "quadratic": {
+          "n": 96,
+          "mean_abs_log_error": 0.2152908067160224,
+          "median_error_factor": 1.1975123013968296,
+          "mean_log_bias": 0.0667136065829426,
+          "underprediction_count": 39,
+          "max_underprediction_factor": 1.6088363789132323,
+          "upper_90_residual_coverage": 0.9583333333333334
+        },
+        "free_power": {
+          "n": 96,
+          "mean_abs_log_error": 0.19174031774649633,
+          "median_error_factor": 1.1684322373623202,
+          "mean_log_bias": 0.06569535459530536,
+          "underprediction_count": 41,
+          "max_underprediction_factor": 1.509893985891797,
+          "upper_90_residual_coverage": 0.9583333333333334
+        }
+      },
+      "n8_age_1_4_updates_1_96": {
+        "observed_c_eff_median": 149374733041.8392,
+        "observed_c_eff_q25_q75": [
+          125617848101.33763,
+          172044196199.06787
+        ],
+        "constant": {
+          "n": 48,
+          "mean_abs_log_error": 0.34168710884569836,
+          "median_error_factor": 1.3029745578232894,
+          "mean_log_bias": -0.27901712279799673,
+          "underprediction_count": 38,
+          "max_underprediction_factor": 2.579332464123581,
+          "upper_90_residual_coverage": 0.75
+        },
+        "quadratic": {
+          "n": 48,
+          "mean_abs_log_error": 0.1799806439037915,
+          "median_error_factor": 1.1699584020316558,
+          "mean_log_bias": 0.011778718619356593,
+          "underprediction_count": 24,
+          "max_underprediction_factor": 1.4678069875792454,
+          "upper_90_residual_coverage": 0.9583333333333334
+        },
+        "free_power": {
+          "n": 48,
+          "mean_abs_log_error": 0.15284255836500665,
+          "median_error_factor": 1.1511079365096695,
+          "mean_log_bias": -0.05880724696359508,
+          "underprediction_count": 29,
+          "max_underprediction_factor": 1.7182791572030254,
+          "upper_90_residual_coverage": 0.875
+        }
+      },
+      "n8_age_5_8_updates_1_96_oracle": {
+        "observed_c_eff_median": 151223408005.58752,
+        "observed_c_eff_q25_q75": [
+          123940166526.5112,
+          178428965231.34247
+        ],
+        "constant": {
+          "n": 48,
+          "mean_abs_log_error": 0.34367454974299605,
+          "median_error_factor": 1.2667112719754272,
+          "mean_log_bias": -0.31209927795961945,
+          "underprediction_count": 40,
+          "max_underprediction_factor": 2.665976211242017,
+          "upper_90_residual_coverage": 0.75
+        },
+        "quadratic": {
+          "n": 48,
+          "mean_abs_log_error": 0.21836806296273772,
+          "median_error_factor": 1.1985578651187263,
+          "mean_log_bias": 0.0039411674037211466,
+          "underprediction_count": 25,
+          "max_underprediction_factor": 1.6088363789132323,
+          "upper_90_residual_coverage": 0.9375
+        },
+        "free_power": {
+          "n": 48,
+          "mean_abs_log_error": 0.1467252521013115,
+          "median_error_factor": 1.1362592157408968,
+          "mean_log_bias": -0.0768804227189805,
+          "underprediction_count": 33,
+          "max_underprediction_factor": 1.509893985891797,
+          "upper_90_residual_coverage": 0.9166666666666666
+        }
+      }
+    }
+  },
+  "accumulation": {
+    "n4": {
+      "noninitial_updates": 72,
+      "positive_C_count": 0,
+      "negative_C_count": 72,
+      "rho_outside_unit_count": 0,
+      "K_decreased_count": 21,
+      "endpoint_median_K_over_sum_d": 0.2889487178450997,
+      "endpoint_median_sum_error_factor": 3.4608231556986593
+    },
+    "n8": {
+      "noninitial_updates": 168,
+      "positive_C_count": 0,
+      "negative_C_count": 168,
+      "rho_outside_unit_count": 0,
+      "K_decreased_count": 73,
+      "endpoint_median_K_over_sum_d": 0.1524335361997901,
+      "endpoint_median_sum_error_factor": 6.560320410019769
+    }
+  },
+  "future_peak": {
+    "fit_rollouts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "holdout_rollouts": [
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24
+    ],
+    "early_peak_below_future_count_all_24": 18,
+    "scores": {
+      "progress_only": {
+        "train": {
+          "n": 16,
+          "mean_abs_log_error": 0.11819740798455047,
+          "median_error_factor": 1.1454822631776087,
+          "mean_log_bias": 1.4051260155412137e-16,
+          "underprediction_count": 8,
+          "max_underprediction_factor": 1.1799790038116584
+        },
+        "holdout": {
+          "n": 8,
+          "mean_abs_log_error": 0.5971907328998641,
+          "median_error_factor": 1.7398479390661221,
+          "mean_log_bias": -0.5971907328998641,
+          "underprediction_count": 8,
+          "max_underprediction_factor": 2.8010103056360536,
+          "upper_90_residual_coverage_count": 0
+        },
+        "train_log_residual_q90": 0.14363761783551787
+      },
+      "progress_early_K": {
+        "train": {
+          "n": 16,
+          "mean_abs_log_error": 0.09201320049788973,
+          "median_error_factor": 1.0787572680024142,
+          "mean_log_bias": -9.26342336171615e-16,
+          "underprediction_count": 9,
+          "max_underprediction_factor": 1.2343504579065876
+        },
+        "holdout": {
+          "n": 8,
+          "mean_abs_log_error": 0.4060106139681704,
+          "median_error_factor": 1.413358124977602,
+          "mean_log_bias": -0.4060106139681704,
+          "underprediction_count": 8,
+          "max_underprediction_factor": 2.0364209907194004,
+          "upper_90_residual_coverage_count": 0
+        },
+        "train_log_residual_q90": 0.15382788459442676
+      },
+      "progress_early_K_grad": {
+        "train": {
+          "n": 16,
+          "mean_abs_log_error": 0.09100689729916844,
+          "median_error_factor": 1.0546327115857967,
+          "mean_log_bias": -7.632783294297951e-16,
+          "underprediction_count": 9,
+          "max_underprediction_factor": 1.2601470439038116
+        },
+        "holdout": {
+          "n": 8,
+          "mean_abs_log_error": 0.30973060984568196,
+          "median_error_factor": 1.320508102038601,
+          "mean_log_bias": -0.30973060984568196,
+          "underprediction_count": 8,
+          "max_underprediction_factor": 1.7643971658610187,
+          "upper_90_residual_coverage_count": 0
+        },
+        "train_log_residual_q90": 0.14607323108934978
+      },
+      "early_peak_naive": {
+        "holdout": {
+          "n": 8,
+          "mean_abs_log_error": 0.13766863919398903,
+          "median_error_factor": 1.1402394038896728,
+          "mean_log_bias": -0.13146373768771297,
+          "underprediction_count": 6,
+          "max_underprediction_factor": 1.2852642409206376
+        }
+      }
+    }
+  }
+}

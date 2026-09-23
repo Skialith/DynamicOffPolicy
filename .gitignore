@@ -1,0 +1,12 @@
+.DS_Store
+.codex-finalizer/
+.codex_build/
+.hf-download-env/
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+experiments/**/raw/
+experiments/**/*.zip
+verl-staleness-code/
+verl-staleness-code.zip
