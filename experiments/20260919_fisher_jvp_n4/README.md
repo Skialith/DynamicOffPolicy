@@ -8,7 +8,7 @@
 
 ## 与其他实验的关系
 
-[N=4 Fisher alignment 实验](../20260919_fisher_alignment_n4/README.md)使用有限 log-prob
+[logits 几何 KL 校验实验](../20260919_logits_kl_geometry_validation/README.md)使用有限 log-prob
 差分代理输出几何，不能等同于严格的参数空间 JVP。本实验专门校准这一解释边界，不用于
 选择 KL 预算、最大 N 或 controller。
 
@@ -26,8 +26,10 @@
 ## 启动、时间与状态
 
 提交脚本为 [`submit_n4_jvp_calibration.sh`](scripts/submit_n4_jvp_calibration.sh)。正式任务
-依赖 8B probe，probe 依赖 FSDP-JVP 兼容性检查。远端运行已完成，由用户于
-2026-09-23 确认；当前本地目录尚未同步 job ID、原始数值和日志。
+依赖 8B probe，probe 依赖 FSDP-JVP 兼容性检查。2026-09-23 远端核验只发现
+`fsdp-jvp-compat` job 166375 `FAILED` 和 job 166912 `CANCELLED`，未发现
+`outputs/fisher_jvp_n4/` 正式输出。因此该实验尚未形成可同步的正式原始数据，不能标记
+为运行完成。
 
 本实验尚未提出或确认结果分析，因此不创建 `docs/EXPERIMENT_RECORD.md`。
 

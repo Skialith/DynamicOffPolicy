@@ -21,10 +21,8 @@ experiments/scripts/sync_remote_raw_artifacts.sh
 
 | 实验 | 运行与本地归档状态 | 结果记录 | 入口 |
 | --- | --- | --- | --- |
-| 2026-09-21：N=1 无交叉项同步控制 | 远端已完成；本地快照仍为 update 1--87，待同步终点 | 尚未要求分析 | [README](20260921_fisher_alignment_n1_control/README.md) |
-| 2026-09-20：N=16/32 Fisher alignment 压力测试 | 两组各 96 updates 已完成，原始产物已归档 | 尚未要求分析 | [README](20260920_fisher_alignment_large_n/README.md) |
-| 2026-09-19：N=4 严格 frozen-Fisher JVP 校准 | 远端已完成；本地尚未同步原始产物 | 尚未要求分析 | [README](20260919_fisher_jvp_n4/README.md) |
-| 2026-09-19：N=4 Fisher alignment 测量 | Probe 与 96-update 正式作业完成，原始产物已归档 | [结果](20260919_fisher_alignment_n4/docs/EXPERIMENT_RECORD.md) | [README](20260919_fisher_alignment_n4/README.md) |
+| 2026-09-19：N=1/4/16/32 logits 几何 KL 校验 | 四个正式设置均完成 96 updates；最终原始产物已按 job ID 同步 | [N=4 结果](20260919_logits_kl_geometry_validation/docs/EXPERIMENT_RECORD.md) | [README](20260919_logits_kl_geometry_validation/README.md) |
+| 2026-09-19：N=4 严格 frozen-Fisher JVP 校准 | 兼容性作业失败/取消；未产生正式运行原始数据 | 尚未要求分析 | [README](20260919_fisher_jvp_n4/README.md) |
 | 2026-09-18：Gradient norm 与轮内 KL 回顾分析 | 本地 CPU 分析完成 | [结果](20260918_gradient_kl_validation/docs/EXPERIMENT_RECORD.md) | [README](20260918_gradient_kl_validation/README.md) |
 | 2026-09-09：无 warmup、等 24 轮 N=4/8 | 作业 158523/158524 完成，原始产物已归档 | [结果](20260909_full_kl_no_warmup_n4_n8/docs/EXPERIMENT_RECORD.md) | [README](20260909_full_kl_no_warmup_n4_n8/README.md) |
 | 2026-09-03：10-step warmup 全词表 KL | N=4/8/16 均完成 96 updates；N=16 收尾脚本失败不影响训练记录 | [结果](20260903_full_kl_warmup/docs/EXPERIMENT_RECORD.md) | [README](20260903_full_kl_warmup/README.md) |
@@ -49,4 +47,4 @@ experiments/scripts/sync_remote_raw_artifacts.sh
 | 无 warmup N=4/8 | 能力曲线 | [按 update](20260909_full_kl_no_warmup_n4_n8/scripts/plot_ability_by_optimizer_step.py)、[按 rollout](20260909_full_kl_no_warmup_n4_n8/scripts/plot_ability_by_rollout.py) |
 | 无 warmup N=4/8 | rollout block 与 peak KL 图 | [生成脚本](20260909_full_kl_no_warmup_n4_n8/scripts/plot_rollout_block_kl.py) |
 | 无 warmup N=4/8 | N=4/N=8 KL 与 gradient norm | [生成脚本](20260909_full_kl_no_warmup_n4_n8/scripts/plot_rollout_block_kl_grad_norm.py) |
-| N=4 Fisher alignment | `kl_formula_validation_2x2.{png,pdf}` | [生成脚本](20260919_fisher_alignment_n4/scripts/plot_formula_validation.py) |
+| logits 几何 KL 校验（N=4） | `kl_formula_validation_2x2.{png,pdf}` | [生成脚本](20260919_logits_kl_geometry_validation/scripts/plot_formula_validation.py) |

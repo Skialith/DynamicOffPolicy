@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize the completed N=4 Fisher-alignment measurement.
+"""Summarize the completed N=4 setting of the logits-geometry KL validation.
 
 The script reads only the archived JSONL files under raw/ and writes compact,
 reproducible tables under tables/.  It intentionally produces no figures.
@@ -209,8 +209,8 @@ def conversion_rows(rows: list[dict]) -> list[dict]:
 
 
 def main() -> None:
-    probe_path = RAW_ROOT / "probe_job166277" / "kl_updates.jsonl"
-    formal_path = RAW_ROOT / "formal_job166278" / "kl_updates.jsonl"
+    probe_path = RAW_ROOT / "n4_probe_job166277" / "kl_updates.jsonl"
+    formal_path = RAW_ROOT / "n4_job166278" / "kl_updates.jsonl"
     probe = read_jsonl(probe_path)
     formal = read_jsonl(formal_path)
     validate_probe(probe)

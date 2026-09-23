@@ -11,7 +11,7 @@
 输入来自[无 warmup、等 24 轮 N=4/8 实验](../20260909_full_kl_no_warmup_n4_n8/README.md)。
 本目录 `raw/n4/`、`raw/n8/` 保存对应 `kl_updates.jsonl` 的逐字节副本；新增的是分析
 方法和派生结果，不是新的训练证据。该分析暴露的累计 KL 非加性解释缺口，随后由
-[N=4 Fisher alignment 实验](../20260919_fisher_alignment_n4/README.md)继续测量。
+[logits 几何 KL 校验实验](../20260919_logits_kl_geometry_validation/README.md)继续测量。
 
 ## 分析设置与时间
 
