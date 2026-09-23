@@ -1,0 +1,109 @@
+{
+  "n": 1,
+  "job_id": 167543,
+  "records": 96,
+  "rollouts": 96,
+  "age_range": [
+    1,
+    1
+  ],
+  "analysis_unit_note": "Rows within a rollout share its anchor and context set; statistics are descriptive, not IID confidence estimates.",
+  "data_integrity": {
+    "optimizer_step_range": [
+      1,
+      96
+    ],
+    "unique_context_sets": 96,
+    "context_count_range": [
+      510,
+      512
+    ],
+    "max_abs_self_kl": 0.0,
+    "max_abs_kl_three_point_error": 0.0,
+    "max_abs_frozen_fisher_fd_closure_error": 4.336808689942018e-19
+  },
+  "exact_kl_distribution": {
+    "adjacent_kl": {
+      "min": 0.0002841283528529522,
+      "median": 0.00044864101804782653,
+      "p95": 0.0010587147208429974,
+      "max": 0.0026533987461215486
+    },
+    "cumulative_kl": {
+      "min": 0.0002841283528529522,
+      "median": 0.00044864101804782653,
+      "p95": 0.0010587147208429974,
+      "max": 0.0026533987461215486
+    }
+  },
+  "points": 96,
+  "comparison_1_step_vs_adjacent": {
+    "points": 96,
+    "median_predicted_over_exact": 1.0010965857712952,
+    "mean_signed_relative_error": 0.0015788877934858742,
+    "median_signed_relative_error": 0.0010965857712952332,
+    "median_absolute_relative_error": 0.005257498098540481,
+    "p90_absolute_relative_error": 0.012386418395277432,
+    "p95_absolute_relative_error": 0.013103776495826447,
+    "max_absolute_relative_error": 0.02528820622100514,
+    "typical_error_factor": 1.0052741456318972
+  },
+  "comparison_2_current_vs_cumulative": {
+    "points": 96,
+    "median_predicted_over_exact": 1.001096585771295,
+    "mean_signed_relative_error": 0.001578887793485851,
+    "median_signed_relative_error": 0.0010965857712951221,
+    "median_absolute_relative_error": 0.005257498098540481,
+    "p90_absolute_relative_error": 0.012386418395277432,
+    "p95_absolute_relative_error": 0.013103776495826447,
+    "max_absolute_relative_error": 0.025288206221004916,
+    "typical_error_factor": 1.0052741456318974
+  },
+  "comparison_3_cross": {
+    "applicable": false,
+    "points": 0,
+    "reason": "no nonzero cumulative direction"
+  },
+  "comparison_4_cosine_vs_rho": {
+    "applicable": false,
+    "points": 0,
+    "reason": "no nonzero cumulative direction"
+  },
+  "age_bands": {
+    "1-1": {
+      "points": 96,
+      "comparison_1_step_vs_adjacent": {
+        "points": 96,
+        "median_predicted_over_exact": 1.0010965857712952,
+        "mean_signed_relative_error": 0.0015788877934858742,
+        "median_signed_relative_error": 0.0010965857712952332,
+        "median_absolute_relative_error": 0.005257498098540481,
+        "p90_absolute_relative_error": 0.012386418395277432,
+        "p95_absolute_relative_error": 0.013103776495826447,
+        "max_absolute_relative_error": 0.02528820622100514,
+        "typical_error_factor": 1.0052741456318972
+      },
+      "comparison_2_current_vs_cumulative": {
+        "points": 96,
+        "median_predicted_over_exact": 1.001096585771295,
+        "mean_signed_relative_error": 0.001578887793485851,
+        "median_signed_relative_error": 0.0010965857712951221,
+        "median_absolute_relative_error": 0.005257498098540481,
+        "p90_absolute_relative_error": 0.012386418395277432,
+        "p95_absolute_relative_error": 0.013103776495826447,
+        "max_absolute_relative_error": 0.025288206221004916,
+        "typical_error_factor": 1.0052741456318974
+      },
+      "comparison_3_cross": {
+        "applicable": false,
+        "points": 0,
+        "reason": "no nonzero cumulative direction"
+      },
+      "comparison_4_cosine_vs_rho": {
+        "applicable": false,
+        "points": 0,
+        "reason": "no nonzero cumulative direction"
+      }
+    }
+  }
+}

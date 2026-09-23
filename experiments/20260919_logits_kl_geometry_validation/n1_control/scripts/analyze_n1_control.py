@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 EXPERIMENT_ROOT = Path(__file__).resolve().parents[1]
-INPUT_PATH = EXPERIMENT_ROOT / "raw" / "n1_job167543" / "kl_updates.jsonl"
+INPUT_PATH = EXPERIMENT_ROOT / "raw" / "job167543" / "kl_updates.jsonl"
 TABLE_ROOT = EXPERIMENT_ROOT / "tables"
 SUMMARY_PATH = TABLE_ROOT / "n1_control_validation.json"
 PER_UPDATE_PATH = TABLE_ROOT / "n1_control_per_update.csv"

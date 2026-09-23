@@ -1,0 +1,299 @@
+{
+  "n": 32,
+  "job_id": 167221,
+  "records": 96,
+  "rollouts": 3,
+  "age_range": [
+    1,
+    32
+  ],
+  "analysis_unit_note": "Rows within a rollout share its anchor and context set; statistics are descriptive, not IID confidence estimates.",
+  "data_integrity": {
+    "optimizer_step_range": [
+      1,
+      96
+    ],
+    "unique_context_sets": 3,
+    "context_count_range": [
+      512,
+      512
+    ],
+    "max_abs_self_kl": 0.0,
+    "max_abs_kl_three_point_error": 1.8431436932253575e-18,
+    "max_abs_frozen_fisher_fd_closure_error": 4.336808689942018e-19
+  },
+  "exact_kl_distribution": {
+    "adjacent_kl": {
+      "min": 0.0006332024569970951,
+      "median": 0.0008631767205364959,
+      "p95": 0.0012581016647850965,
+      "max": 0.001391484047702828
+    },
+    "cumulative_kl": {
+      "min": 0.0007667333088815501,
+      "median": 0.0010957628062729006,
+      "p95": 0.0016817932684908099,
+      "max": 0.0018626599776752177
+    }
+  },
+  "points": 96,
+  "comparison_1_step_vs_adjacent": {
+    "points": 96,
+    "median_predicted_over_exact": 1.005182053847938,
+    "mean_signed_relative_error": 0.005469748755037914,
+    "median_signed_relative_error": 0.005182053847937906,
+    "median_absolute_relative_error": 0.007357693405587673,
+    "p90_absolute_relative_error": 0.020669417186810257,
+    "p95_absolute_relative_error": 0.026620262951578044,
+    "max_absolute_relative_error": 0.03485374161877264,
+    "typical_error_factor": 1.0073670448944823
+  },
+  "comparison_2_current_vs_cumulative": {
+    "points": 96,
+    "median_predicted_over_exact": 1.0082304223072593,
+    "mean_signed_relative_error": 0.008353536934838127,
+    "median_signed_relative_error": 0.008230422307259344,
+    "median_absolute_relative_error": 0.008618313243649922,
+    "p90_absolute_relative_error": 0.018999860586019213,
+    "p95_absolute_relative_error": 0.02187780391783084,
+    "max_absolute_relative_error": 0.028183550395433965,
+    "typical_error_factor": 1.0086183090744314
+  },
+  "comparison_3_cross": {
+    "applicable": true,
+    "points": 93,
+    "exact_median": -0.0008524919746747111,
+    "predicted_median": -0.0008610844301865935,
+    "raw_mean_absolute_error": 1.1550228469264794e-05,
+    "raw_max_absolute_error": 5.10908794860756e-05,
+    "median_absolute_normalized_error": 0.004168897426220523,
+    "p95_absolute_normalized_error": 0.01671890543538351,
+    "max_absolute_normalized_error": 0.027013658047364716,
+    "pearson": 0.9976579141848069,
+    "sign_comparable_points": 93,
+    "sign_agreement": 1.0
+  },
+  "comparison_4_cosine_vs_rho": {
+    "applicable": true,
+    "points": 93,
+    "rho_eff_median": -0.43594038022796805,
+    "frozen_fisher_fd_cosine_median": -0.43614323597450133,
+    "mean_absolute_error": 0.003193323133935864,
+    "median_absolute_error": 0.002502695495435747,
+    "p95_absolute_error": 0.008776326665377018,
+    "max_absolute_error": 0.014341714994550114,
+    "pearson": 0.9956109355666501,
+    "sign_comparable_points": 93,
+    "sign_agreement": 1.0
+  },
+  "age_bands": {
+    "1-4": {
+      "points": 12,
+      "comparison_1_step_vs_adjacent": {
+        "points": 12,
+        "median_predicted_over_exact": 0.9989550266342699,
+        "mean_signed_relative_error": -0.00022170606617309221,
+        "median_signed_relative_error": -0.001044973365730062,
+        "median_absolute_relative_error": 0.004067763435290306,
+        "p90_absolute_relative_error": 0.009527390230746335,
+        "p95_absolute_relative_error": 0.012493208282246645,
+        "max_absolute_relative_error": 0.0159722529349402,
+        "typical_error_factor": 1.004072069535096
+      },
+      "comparison_2_current_vs_cumulative": {
+        "points": 12,
+        "median_predicted_over_exact": 1.0013980301696126,
+        "mean_signed_relative_error": 0.0024457566852760515,
+        "median_signed_relative_error": 0.0013980301696124853,
+        "median_absolute_relative_error": 0.005739489588893365,
+        "p90_absolute_relative_error": 0.008212936338392662,
+        "p95_absolute_relative_error": 0.013215275740980961,
+        "max_absolute_relative_error": 0.01931655501936902,
+        "typical_error_factor": 1.0057392520844501
+      },
+      "comparison_3_cross": {
+        "applicable": true,
+        "points": 9,
+        "exact_median": -0.0007789024846546928,
+        "predicted_median": -0.0007767685854629271,
+        "raw_mean_absolute_error": 8.216367720313562e-06,
+        "raw_max_absolute_error": 2.4099170505336928e-05,
+        "median_absolute_normalized_error": 0.0028749755185435892,
+        "p95_absolute_normalized_error": 0.008868410161937724,
+        "max_absolute_normalized_error": 0.01038415709615761,
+        "pearson": 0.9985415670154879,
+        "sign_comparable_points": 9,
+        "sign_agreement": 1.0
+      },
+      "comparison_4_cosine_vs_rho": {
+        "applicable": true,
+        "points": 9,
+        "rho_eff_median": -0.46703071945221847,
+        "frozen_fisher_fd_cosine_median": -0.46674600603420874,
+        "mean_absolute_error": 0.0031065864879217995,
+        "median_absolute_error": 0.003099488334024736,
+        "p95_absolute_error": 0.005990512743033848,
+        "max_absolute_error": 0.006314551412612113,
+        "pearson": 0.9962508097879351,
+        "sign_comparable_points": 9,
+        "sign_agreement": 1.0
+      }
+    },
+    "5-8": {
+      "points": 12,
+      "comparison_1_step_vs_adjacent": {
+        "points": 12,
+        "median_predicted_over_exact": 1.0071425606958029,
+        "mean_signed_relative_error": 0.007995008684579188,
+        "median_signed_relative_error": 0.00714256069580288,
+        "median_absolute_relative_error": 0.007418101015739198,
+        "p90_absolute_relative_error": 0.016487535317495607,
+        "p95_absolute_relative_error": 0.022950380521905657,
+        "max_absolute_relative_error": 0.030671988104610914,
+        "typical_error_factor": 1.0074448944105854
+      },
+      "comparison_2_current_vs_cumulative": {
+        "points": 12,
+        "median_predicted_over_exact": 1.0113426538598957,
+        "mean_signed_relative_error": 0.011397065002870974,
+        "median_signed_relative_error": 0.011342653859895746,
+        "median_absolute_relative_error": 0.011342653859895746,
+        "p90_absolute_relative_error": 0.021324603402253308,
+        "p95_absolute_relative_error": 0.024615362837864092,
+        "max_absolute_relative_error": 0.028183550395433965,
+        "typical_error_factor": 1.0113411997426638
+      },
+      "comparison_3_cross": {
+        "applicable": true,
+        "points": 12,
+        "exact_median": -0.0008421916138677902,
+        "predicted_median": -0.0008359658962448521,
+        "raw_mean_absolute_error": 9.439514701675868e-06,
+        "raw_max_absolute_error": 2.3687202821173802e-05,
+        "median_absolute_normalized_error": 0.004264615455173593,
+        "p95_absolute_normalized_error": 0.009350445359083812,
+        "max_absolute_normalized_error": 0.012031864598710574,
+        "pearson": 0.9982779118849331,
+        "sign_comparable_points": 12,
+        "sign_agreement": 1.0
+      },
+      "comparison_4_cosine_vs_rho": {
+        "applicable": true,
+        "points": 12,
+        "rho_eff_median": -0.41907739524921106,
+        "frozen_fisher_fd_cosine_median": -0.41893771766449406,
+        "mean_absolute_error": 0.002883545506128344,
+        "median_absolute_error": 0.002882719823200597,
+        "p95_absolute_error": 0.004718111118838927,
+        "max_absolute_error": 0.005208116310028765,
+        "pearson": 0.9985448556152087,
+        "sign_comparable_points": 12,
+        "sign_agreement": 1.0
+      }
+    },
+    "9-16": {
+      "points": 24,
+      "comparison_1_step_vs_adjacent": {
+        "points": 24,
+        "median_predicted_over_exact": 1.0092019731214914,
+        "mean_signed_relative_error": 0.007335458250826797,
+        "median_signed_relative_error": 0.009201973121491513,
+        "median_absolute_relative_error": 0.01307494083586691,
+        "p90_absolute_relative_error": 0.02697239094257875,
+        "p95_absolute_relative_error": 0.028849635871870682,
+        "max_absolute_relative_error": 0.03485374161877264,
+        "typical_error_factor": 1.0130749399764971
+      },
+      "comparison_2_current_vs_cumulative": {
+        "points": 24,
+        "median_predicted_over_exact": 1.0080536116064565,
+        "mean_signed_relative_error": 0.00898838485954867,
+        "median_signed_relative_error": 0.008053611606456457,
+        "median_absolute_relative_error": 0.008053611606456457,
+        "p90_absolute_relative_error": 0.016818203998039592,
+        "p95_absolute_relative_error": 0.020714783923815573,
+        "max_absolute_relative_error": 0.024303966737054816,
+        "typical_error_factor": 1.0080535948295677
+      },
+      "comparison_3_cross": {
+        "applicable": true,
+        "points": 24,
+        "exact_median": -0.000842830706811324,
+        "predicted_median": -0.0008499288140243544,
+        "raw_mean_absolute_error": 1.6340988112795304e-05,
+        "raw_max_absolute_error": 5.10908794860756e-05,
+        "median_absolute_normalized_error": 0.005498050736225344,
+        "p95_absolute_normalized_error": 0.019151816211169844,
+        "max_absolute_normalized_error": 0.027013658047364716,
+        "pearson": 0.9965800234871609,
+        "sign_comparable_points": 24,
+        "sign_agreement": 1.0
+      },
+      "comparison_4_cosine_vs_rho": {
+        "applicable": true,
+        "points": 24,
+        "rho_eff_median": -0.44958537587187086,
+        "frozen_fisher_fd_cosine_median": -0.45077695899905984,
+        "mean_absolute_error": 0.0040350645199743,
+        "median_absolute_error": 0.0028242834800492334,
+        "p95_absolute_error": 0.009181461327793097,
+        "max_absolute_error": 0.012249355827021302,
+        "pearson": 0.994771263435276,
+        "sign_comparable_points": 24,
+        "sign_agreement": 1.0
+      }
+    },
+    "17-32": {
+      "points": 48,
+      "comparison_1_step_vs_adjacent": {
+        "points": 48,
+        "median_predicted_over_exact": 1.0048318415431556,
+        "mean_signed_relative_error": 0.005328442730060906,
+        "median_signed_relative_error": 0.004831841543155635,
+        "median_absolute_relative_error": 0.007080293947209437,
+        "p90_absolute_relative_error": 0.020003508341533905,
+        "p95_absolute_relative_error": 0.02112132829214173,
+        "max_absolute_relative_error": 0.03283262322946978,
+        "typical_error_factor": 1.0070802936834318
+      },
+      "comparison_2_current_vs_cumulative": {
+        "points": 48,
+        "median_predicted_over_exact": 1.0106438320712978,
+        "mean_signed_relative_error": 0.008752176017865161,
+        "median_signed_relative_error": 0.01064383207129782,
+        "median_absolute_relative_error": 0.011204888177297256,
+        "p90_absolute_relative_error": 0.019248342480391808,
+        "p95_absolute_relative_error": 0.021902394869990648,
+        "max_absolute_relative_error": 0.0220931154538746,
+        "typical_error_factor": 1.011204883655069
+      },
+      "comparison_3_cross": {
+        "applicable": true,
+        "points": 48,
+        "exact_median": -0.0008822687899536307,
+        "predicted_median": -0.0008796401741482647,
+        "raw_mean_absolute_error": 1.0307625979825126e-05,
+        "raw_max_absolute_error": 4.784689821093514e-05,
+        "median_absolute_normalized_error": 0.0036380069915705154,
+        "p95_absolute_normalized_error": 0.014929334450792281,
+        "max_absolute_normalized_error": 0.02253804893657088,
+        "pearson": 0.9983012293682745,
+        "sign_comparable_points": 48,
+        "sign_agreement": 1.0
+      },
+      "comparison_4_cosine_vs_rho": {
+        "applicable": true,
+        "points": 48,
+        "rho_eff_median": -0.43519873721816943,
+        "frozen_fisher_fd_cosine_median": -0.4355380403956637,
+        "mean_absolute_error": 0.0028661599689961625,
+        "median_absolute_error": 0.002256897953869297,
+        "p95_absolute_error": 0.008430909754014695,
+        "max_absolute_error": 0.014341714994550114,
+        "pearson": 0.9946609975748015,
+        "sign_comparable_points": 48,
+        "sign_agreement": 1.0
+      }
+    }
+  }
+}

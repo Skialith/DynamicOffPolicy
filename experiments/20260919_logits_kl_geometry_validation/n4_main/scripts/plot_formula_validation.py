@@ -22,7 +22,7 @@ from matplotlib.lines import Line2D  # noqa: E402
 
 
 EXPERIMENT_ROOT = Path(__file__).resolve().parents[1]
-INPUT_PATH = EXPERIMENT_ROOT / "raw" / "n4_job166278" / "kl_updates.jsonl"
+INPUT_PATH = EXPERIMENT_ROOT / "raw" / "job166278" / "kl_updates.jsonl"
 FIGURE_ROOT = EXPERIMENT_ROOT / "figures"
 OUTPUT_STEM = FIGURE_ROOT / "kl_formula_validation_2x2"
 

@@ -1,6 +1,6 @@
 {
   "analysis_scope": "N=1 control: measurement closure and age-one finite-difference accuracy",
-  "source": "raw/n1_job167543/kl_updates.jsonl",
+  "source": "raw/job167543/kl_updates.jsonl",
   "job_id": 167543,
   "records": 96,
   "optimizer_step_range": [

@@ -117,7 +117,9 @@ def write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         raise ValueError(f"cannot write an empty table: {path}")
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(
+            handle, fieldnames=list(rows[0]), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -209,8 +211,8 @@ def conversion_rows(rows: list[dict]) -> list[dict]:
 
 
 def main() -> None:
-    probe_path = RAW_ROOT / "n4_probe_job166277" / "kl_updates.jsonl"
-    formal_path = RAW_ROOT / "n4_job166278" / "kl_updates.jsonl"
+    probe_path = RAW_ROOT / "probe_job166277" / "kl_updates.jsonl"
+    formal_path = RAW_ROOT / "job166278" / "kl_updates.jsonl"
     probe = read_jsonl(probe_path)
     formal = read_jsonl(formal_path)
     validate_probe(probe)
