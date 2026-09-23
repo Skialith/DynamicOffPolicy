@@ -56,7 +56,7 @@ resolved config、run manifest、训练统计、已有逐题评测、TensorBoard
 
 ## 产物入口
 
-- [N=4 已确认结果](docs/EXPERIMENT_RECORD.md)；其结论范围不自动扩展到 N=1/16/32
+- [N=1 与 N=4 已确认结果](docs/EXPERIMENT_RECORD.md)；其结论范围不自动扩展到 N=16/32
 - 原始产物：`raw/n1_job167543/`、`raw/n4_job166278/`、
   `raw/n16_job167220/`、`raw/n32_job167221/`
 - N=4 工程 probe：`raw/n4_probe_job166277/`

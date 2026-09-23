@@ -21,7 +21,7 @@ experiments/scripts/sync_remote_raw_artifacts.sh
 
 | 实验 | 运行与本地归档状态 | 结果记录 | 入口 |
 | --- | --- | --- | --- |
-| 2026-09-19：N=1/4/16/32 logits 几何 KL 校验 | 四个正式设置均完成 96 updates；最终原始产物已按 job ID 同步 | [N=4 结果](20260919_logits_kl_geometry_validation/docs/EXPERIMENT_RECORD.md) | [README](20260919_logits_kl_geometry_validation/README.md) |
+| 2026-09-19：N=1/4/16/32 logits 几何 KL 校验 | 四个正式设置均完成 96 updates；最终原始产物已按 job ID 同步 | [N=1/4 结果](20260919_logits_kl_geometry_validation/docs/EXPERIMENT_RECORD.md) | [README](20260919_logits_kl_geometry_validation/README.md) |
 | 2026-09-19：N=4 严格 frozen-Fisher JVP 校准 | 兼容性作业失败/取消；未产生正式运行原始数据 | 尚未要求分析 | [README](20260919_fisher_jvp_n4/README.md) |
 | 2026-09-18：Gradient norm 与轮内 KL 回顾分析 | 本地 CPU 分析完成 | [结果](20260918_gradient_kl_validation/docs/EXPERIMENT_RECORD.md) | [README](20260918_gradient_kl_validation/README.md) |
 | 2026-09-09：无 warmup、等 24 轮 N=4/8 | 作业 158523/158524 完成，原始产物已归档 | [结果](20260909_full_kl_no_warmup_n4_n8/docs/EXPERIMENT_RECORD.md) | [README](20260909_full_kl_no_warmup_n4_n8/README.md) |
