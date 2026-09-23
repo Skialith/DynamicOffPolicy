@@ -24,7 +24,8 @@ def main():
     device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
     torch.cuda.set_device(device)
     torch.manual_seed(20260919)
-    model = FSDP(ToyModel().to(device), device_id=device, use_orig_params=False)
+    use_orig_params = os.environ.get("FSDP_USE_ORIG_PARAMS", "0") == "1"
+    model = FSDP(ToyModel().to(device), device_id=device, use_orig_params=use_orig_params)
     model.eval()
     inputs = torch.randn(3, 8, device=device)
 
@@ -57,7 +58,12 @@ def main():
         raise RuntimeError(f"FSDP JVP mismatch: max_abs={max_abs.item()} relative={relative.item()}")
     dist.all_reduce(relative, op=dist.ReduceOp.MAX)
     if rank == 0:
-        print(f"FSDP_PARAMETER_JVP_OK world_size={dist.get_world_size()} max_relative_error={relative.item():.6g}")
+        print(
+            "FSDP_PARAMETER_JVP_OK "
+            f"world_size={dist.get_world_size()} "
+            f"use_orig_params={use_orig_params} "
+            f"max_relative_error={relative.item():.6g}"
+        )
     dist.destroy_process_group()
 
 
