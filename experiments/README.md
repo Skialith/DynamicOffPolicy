@@ -21,7 +21,7 @@ experiments/scripts/sync_remote_raw_artifacts.sh
 
 | 实验 | 运行与本地归档状态 | 结果记录 | 入口 |
 | --- | --- | --- | --- |
-| 2026-10-04：小模型精确 KL-HVP 与 FSDP 梯度差分对照 | 165 对照完成；微型模型两路线通过，0.6B 精确 AD 通过、固定尺度差分数值验收失败 | 原始自检已归档，尚未要求正式分析 | [README](20261004_kl_hvp_exact_vs_fsdp_fd/README.md) |
+| 2026-10-04：小模型精确 KL-HVP 与 FSDP 梯度差分对照 | 165 对照完成；0.6B 跨卡/单卡精确 AD 通过，固定尺度差分数值验收失败 | 原始自检已归档，尚未要求正式分析 | [README](20261004_kl_hvp_exact_vs_fsdp_fd/README.md) |
 | 2026-09-24：Frozen-Fisher 谱估计兼容性验证 | 本地公式与静态检查通过；jobs 169831/169835 排队中 | 尚未要求分析 | [README](20260924_fisher_spectral_compatibility/README.md) |
 | 2026-09-19：N=1/4/16/32 logits 几何 KL 校验实验族 | 四个子实验均完成 96 updates；原始产物和记录按设置分开 | [N=1](20260919_logits_kl_geometry_validation/n1_control/docs/EXPERIMENT_RECORD.md) · [N=4](20260919_logits_kl_geometry_validation/n4_main/docs/EXPERIMENT_RECORD.md) · [N=16](20260919_logits_kl_geometry_validation/n16_large_age/docs/EXPERIMENT_RECORD.md) · [N=32](20260919_logits_kl_geometry_validation/n32_large_age/docs/EXPERIMENT_RECORD.md) | [实验族入口](20260919_logits_kl_geometry_validation/README.md) |
 | 2026-09-19：N=4 严格 frozen-Fisher JVP 校准 | 兼容性作业失败/取消；未产生正式运行原始数据 | 尚未要求分析 | [README](20260919_fisher_jvp_n4/README.md) |

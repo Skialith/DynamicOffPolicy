@@ -126,7 +126,7 @@ def normalize(values, distributed=False):
 
 
 def synchronize(distributed=False):
-    devices = [int(os.environ["LOCAL_RANK"])] if distributed else [0, 1]
+    devices = [int(os.environ["LOCAL_RANK"])] if distributed else range(torch.cuda.device_count())
     for device in devices:
         torch.cuda.synchronize(device)
 
@@ -176,20 +176,32 @@ def environment():
     return {"utc": datetime.now(timezone.utc).isoformat(), "host": platform.node(),
             "python": platform.python_version(), "torch": torch.__version__,
             "transformers": transformers.__version__, "cuda": torch.version.cuda,
-            "gpus": [torch.cuda.get_device_name(index) for index in range(2)]}
+            "gpus": [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())]}
 
 
 def run_exact(args):
     model = load_model(args)
     names = [name for name, _ in model.named_parameters()]
     count = sum(parameter.numel() for parameter in model.parameters())
-    batch_cpu = make_batch(args)
-    place_layers(model)
+    reference = None
+    if args.reference:
+        reference = torch.load(args.reference / "reference.pt", mmap=True, weights_only=True)
+        assert count == reference["count"] and names == reference["names"]
+    batch_cpu = reference["batch"] if reference is not None else make_batch(args)
+    if args.placement == "single":
+        model.to("cuda:0")
+    else:
+        place_layers(model)
     parameters = list(model.parameters())
     batch = move_tree(batch_cpu, "cuda:0")
     with torch.no_grad():
         anchor_logp = logits(model, batch).double().log_softmax(-1).detach()
-    direction_cpu = random_direction(count, 20261005)
+    comparison = {}
+    if reference is not None:
+        comparison["anchor_logp_max_difference"] = (
+            anchor_logp - reference["anchor_logp"].to(anchor_logp.device)
+        ).abs().max().item()
+    direction_cpu = reference["direction"] if reference is not None else random_direction(count, 20261005)
     direction = split_vector(direction_cpu, parameters)
     other = split_vector(random_direction(count, 20261006), parameters)
 
@@ -205,7 +217,7 @@ def run_exact(args):
     grad_norm = vector_norm(anchor_grad).item()
     del anchor_grad, initial_loss
     product(direction)  # Warm up both the first- and second-backward kernels.
-    for device in (0, 1):
+    for device in range(torch.cuda.device_count()):
         torch.cuda.reset_peak_memory_stats(device)
     synchronize()
     started = time.perf_counter()
@@ -219,24 +231,45 @@ def run_exact(args):
         vector_norm(reference_product).item(), vector_norm(other_product).item(), 1e-30,
     )
     energy = vector_dot(direction, reference_product).item()
+    if reference is not None:
+        previous_product = split_vector(reference["product"], parameters)
+        comparison["random_fvp_relative_difference"] = (
+            vector_norm([x - y for x, y in zip(reference_product, previous_product)])
+            / vector_norm(reference_product)
+        ).item()
+        del previous_product, reference
     torch.save({"direction": direction_cpu, "product": flatten_cpu(reference_product),
                 "batch": batch_cpu, "anchor_logp": anchor_logp.cpu(), "names": names,
                 "count": count}, args.output / "reference.pt")
     del reference_product, other_product, other, direction_cpu
+    if args.power_seed != 20261005:
+        direction = split_vector(random_direction(count, args.power_seed), parameters)
     eigenvector, power = power_iteration(product, direction, args.steps, args.tolerance)
     torch.save(flatten_cpu(eigenvector), args.output / "eigenvector.pt")
-    summary = {"route": "layer_parallel_exact_ad", "environment": environment(),
+    if args.reference:
+        estimate = power["history"][-1]["rayleigh"]
+        for route in ("exact", "fd"):
+            with (args.reference / f"{route}.json").open(encoding="utf-8") as stream:
+                previous = json.load(stream)
+            previous_estimate = previous["power"]["history"][-1]["rayleigh"]
+            comparison[f"{route}_lambda_relative_difference"] = abs(previous_estimate - estimate) / abs(estimate)
+    summary = {"route": f"{args.placement}_exact_ad", "environment": environment(),
                "model": args.model, "parameters": count, "optimizer_updates": 0,
+               "power_seed": args.power_seed, "tolerance": args.tolerance,
+               "comparison_with_reference_run": comparison,
                "anchor_gradient_norm": grad_norm, "random_direction_energy": energy,
                "symmetry_scaled_error": symmetry, "fvp_seconds": product_seconds,
                "power": power, "peak_allocated_bytes": [
-                   torch.cuda.max_memory_allocated(device) for device in (0, 1)],
+                   torch.cuda.max_memory_allocated(device) for device in range(torch.cuda.device_count())],
                "peak_reserved_bytes": [
-                   torch.cuda.max_memory_reserved(device) for device in (0, 1)]}
+                   torch.cuda.max_memory_reserved(device) for device in range(torch.cuda.device_count())]}
     write_json(args.output / "exact.json", summary)
     emit(summary)
     if grad_norm > 1e-4 or energy <= 0 or symmetry > 1e-4:
         raise RuntimeError("Exact AD anchor/PSD/symmetry check failed")
+    if args.reference and (comparison["anchor_logp_max_difference"] > 2e-4
+                           or comparison["random_fvp_relative_difference"] > 1e-4):
+        raise RuntimeError("Single/layer-parallel anchor or FVP mismatch")
 
 
 def run_fd(args):
@@ -386,6 +419,9 @@ def main():
     parser.add_argument("route", choices=["exact", "fd"])
     parser.add_argument("--model", choices=["tiny", "qwen06"], default="tiny")
     parser.add_argument("--model-path")
+    parser.add_argument("--placement", choices=["single", "layers"], default="layers")
+    parser.add_argument("--reference", type=Path, help="Previous two-GPU raw run to compare against")
+    parser.add_argument("--power-seed", type=int, default=20261005)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--steps", type=int, default=80)
     parser.add_argument("--tolerance", type=float, default=1e-3)
@@ -396,8 +432,9 @@ def main():
         parser.error("qwen06 requires --model-path")
     if args.steps < 1 or args.tolerance <= 0 or any(value <= 0 for value in args.epsilons):
         parser.error("steps, tolerance and epsilons must be positive")
-    if torch.cuda.device_count() != 2:
-        parser.error("Expose exactly two GPUs with CUDA_VISIBLE_DEVICES")
+    required_gpus = 1 if args.route == "exact" and args.placement == "single" else 2
+    if torch.cuda.device_count() != required_gpus:
+        parser.error(f"Expose exactly {required_gpus} GPU(s) with CUDA_VISIBLE_DEVICES")
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     args.output.mkdir(parents=True, exist_ok=True)

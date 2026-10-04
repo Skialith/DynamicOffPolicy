@@ -39,6 +39,24 @@ legacy FSDP 参数 JVP 和差分路线。本次不重试原 JVP 设置，而是�
 时间和显存仅是小模型工程诊断，不能直接外推 8B；两种模型放置方式不同，不据此作纯算法
 速度排名。正式分析方案尚未确认，不建立 `docs/EXPERIMENT_RECORD.md` 或派生图表。
 
+### 单卡数值参考补验
+
+用户进一步要求检查残差与实际特征值误差的关系。单卡补验将完整 0.6B 模型放在 GPU 0，
+不使用 FSDP 或按层跨卡；沿用最终两卡运行保存的参数方向和前缀，验证 anchor 与随机
+方向 FVP 一致性。仍是 FP32 模型、FP64 输出 KL，不构造完整 Fisher 矩阵。
+Power Iteration 阈值收紧为 `1e-5`，使用 seed `20261005/20261007` 两个初始方向。
+原两卡作业的 `1e-3` 阈值不回改。各方法相对该单卡数值参考的误差写入原始自检 JSON；
+单卡参考不是解析真值，也不单凭残差宣称已证明求到了全局最大特征值。
+
+残差定义为 `||Fv - lambda v|| / ||Fv||`，其中 `v` 全局单位范数；它衡量特征方程的
+一致性，不是与另一个方法作比较。单卡补验启动脚本为
+[`run_single_reference_165.sh`](scripts/run_single_reference_165.sh)。
+补验实例 `single_reference_20261004_200135_GNV6FU` 于 20:01:35 开始、20:02:46 结束，
+两个 seed 均完成、收敛并通过 anchor/FVP 一致性检查，退出码 0；只使用 GPU 0。
+原始标量分别在 `seed_20261005/exact.json`、`seed_20261007/exact.json`，误差相对于
+原两卡实例 `qwen06_20261004_194558_cnh3Ei`，不改写其历史文件。
+20:05:45 核验两张 GPU 均约 21 MiB、0% utilization，无计算进程。
+
 ## 启动、时间与状态
 
 2026-10-04：165 SSH 已恢复；GPU 0/1 各使用约 21 MiB，未见计算进程。已有环境
@@ -75,6 +93,7 @@ PyTorch 2.8.0+cu128、Transformers 4.57.1。已有模型资产：
 ```bash
 bash scripts/run_compare_165.sh tiny
 bash scripts/run_compare_165.sh qwen06
+bash scripts/run_single_reference_165.sh
 ```
 
 每次自动建立新的 raw 实例，JSON 用独占创建防止覆盖。精确 `.pt` 参考包含大向量，
@@ -86,4 +105,5 @@ bash scripts/run_compare_165.sh qwen06
 - [165 启动脚本](scripts/run_compare_165.sh)
 - [最终微型模型原始自检](raw/tiny_20261004_194538_JwJAnn/)
 - [最终 0.6B 原始自检](raw/qwen06_20261004_194558_cnh3Ei/)
+- [单卡精确补验原始自检](raw/single_reference_20261004_200135_GNV6FU/)
 - [实验索引](../README.md)
