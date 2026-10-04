@@ -15,9 +15,9 @@ SEED=${SEED:-1}
 RUNTIME_PROFILE=${RUNTIME_PROFILE:-memory_safe}
 
 case "${TARGET}" in
-    smoke|probe|adam_probe|performance_probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe|anchor|branch|n4_then_n8) ;;
+    smoke|probe|adam_probe|performance_probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|anchor|branch|n4_then_n8) ;;
     *)
-        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
+        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
         exit 2
         ;;
 esac
@@ -94,7 +94,7 @@ case "${TARGET}" in
         EFFECTIVE_OUTPUT_ROOT=${SMOKE_ROOT}
         export SMOKE_ROOT
         ;;
-    probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe)
+    probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe)
         OUTPUT_BASE_ROOT=${OUTPUT_ROOT:-${REPO_ROOT}/outputs/resource_probe}
         OUTPUT_ROOT=${OUTPUT_INSTANCE_ROOT:-${OUTPUT_BASE_ROOT}/${RUN_INSTANCE_TAG}}
         EFFECTIVE_OUTPUT_ROOT=${OUTPUT_ROOT}
@@ -197,6 +197,9 @@ case "${TARGET}" in
     fvp_compat_probe)
         exec bash "${SCRIPT_DIR}/run_fsdp_fisher_vector_product_probe.sh" "$@"
         ;;
+    exact_hvp_probe)
+        exec bash "${SCRIPT_DIR}/run_exact_kl_hvp_probe.sh" "$@"
+        ;;
     smoke)
         exec "${SCRIPT_DIR}/run_smoke.sh" "$@"
         ;;
@@ -233,7 +236,7 @@ case "${TARGET}" in
         exec "${SCRIPT_DIR}/run_n4_then_n8.sh" "$@"
         ;;
     *)
-        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
+        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|geometry_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
         exit 2
         ;;
 esac
