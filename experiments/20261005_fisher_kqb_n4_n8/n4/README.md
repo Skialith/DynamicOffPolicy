@@ -31,8 +31,22 @@ trajectory 数对齐，不按 rollout 数对齐；本设置共 24 轮。
 SLURM_DEPENDENCY=afterok:<probe-job-id> bash experiments/20261005_fisher_kqb_n4_n8/scripts/submit_experiment.sh n4
 ```
 
-当前尚未提交正式作业；前置 probe 188038 在第一次 HVP 的第二次反传 OOM，失败。
-修复和 probe 详情见 [N=8 的状态记录](../n8/README.md)；正式作业只依赖后续通过的 probe。
+前置 probe 188038 在第一次 HVP 的第二次反传 OOM，失败；修复和重提 probe 详情见
+[N=8 的状态记录](../n8/README.md)。本设置已按修复源码 `3ece08a` 提交：
+
+| 项目 | 记录 |
+| --- | --- |
+| 正式 job | 188659，`fisher-kqb-n4-g4` |
+| 提交时间 | 2026-10-05 18:20:16，Asia/Shanghai |
+| 依赖 | `afterok:188641`；失败的 188038 不作为依赖 |
+| 状态核验 | 2026-10-05 18:22:05：`PENDING (Dependency)`，尚未开始、尚未分配实际节点 |
+| 请求资源 | `gpu_a800`，4 GPU；实际 CPU/主存/开始结束时间待分配后核验 |
+| 日志 | 部署下 `logs/slurm/fisher-kqb-n4-g4-188659.out` |
+
+正式设置为 N=4、96 updates、24 rollouts；与 probe 的小训练 batch 不混合。源码
+关键文件的部署摘要与本地一致。提交前账户持久空间约 38.72 GB/268.44 GB，基座
+资产不复制、不改写；测量权重仅用 job-local 临时目录。GPU 集成尚未通过，正式
+作业必须等 188641 完成并通过全部逐 update 验收才能启动。
 时限 7 天是资源兜底，不是估算完成时间。
 
 提交前 CPU 自检：五项通过，包括真实 FP32 state_dict 往返、全参数微型 Qwen3

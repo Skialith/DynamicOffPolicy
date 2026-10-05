@@ -40,8 +40,8 @@ bash experiments/20261005_fisher_kqb_n4_n8/scripts/submit_experiment.sh probe
 SLURM_DEPENDENCY=afterok:<probe-job-id> bash experiments/20261005_fisher_kqb_n4_n8/scripts/submit_experiment.sh n8
 ```
 
-probe 时限 24 小时，正式时限 7 天；时限不是可靠完成时间预测。两组正式作业尚未
-提交，不能把短前缀 HVP 验证或 CPU 自检当作集成 probe 已通过。
+probe 时限 24 小时，正式时限 7 天；时限不是可靠完成时间预测。成功提交也不表示
+集成通过，正式作业的启动必须满足新 probe 的 `afterok` 依赖。
 
 ### 首次集成 probe：188038
 
@@ -58,7 +58,7 @@ elapsed 12:38。2026-10-05 重新核验 `FAILED 1:0`；实际 4 GPU、32 CPU、5
 确定输出实例：`20261005-144152_job188038_g4_tp2_seed1_hvp_integration_probe`，其下
 `fisher_kqb_probe_n8_u0008/` 位于 `n8/raw/integration_probe/`。持久产物约 7.6 MiB，
 不含训练权重；异常路径会清理私有 anchor/cache，不改写基座资产。用户用量中断发生
-在提交后，正式两组尚未排队。
+在提交后；当时正式两组尚未排队。
 
 修复方向：保持全词表、64 prompts、长度上限和 FP32/FP64 精度，二阶图 saved tensors
 放普通 CPU memory（不累积大规模锁页缓存），但已常驻 GPU 的权重/方向不重复拷贝；第一次梯度值完成
@@ -71,6 +71,28 @@ HVP（逐参数 atol=1e-6、rtol=1e-5）；不一致则直接失败。这是新 
 复测准备：最终选择性 offload 的六项训练测量 CPU 检查通过；既有三项精确 HVP
 回归检查通过；编译、shell 语法与 diff 检查通过。GPU 搬运和真实 8B 的显存是否
 通过，以重提交作业为准，不由 CPU 检查推出。
+
+### 修复重提与正式排队
+
+源码 `3ece08a`；核心文件部署摘要与本地一致，显式加载 miniforge3 和 CUDA 12.8。
+2026-10-05 18:22:05（Asia/Shanghai）核验：
+
+| phase | job ID | 提交时间 | 开始时间 | 依赖 / 当前状态 |
+| --- | --- | --- | --- | --- |
+| 修复后集成 probe | 188641 | 18:18:06 | 18:18:31 | 无；`RUNNING` |
+| N=8、96 updates 正式 | 188660 | 18:20:16 | 尚未开始 | `afterok:188641`；`PENDING (Dependency)` |
+
+probe 在 `d1n41a28g03`，实际 4×A800-SXM4-80GB、32 CPU、502400 MiB 主存。
+当前日志仍在模型/rollout 引擎初始化，尚无 8B HVP 或残差收敛完成记录；不记为通过。
+probe 完成全部 8 次真实 update、K/Q/B 及清理验收后，正式作业才可启动。正式请求
+四卡，尚未实际分配节点；结束时间与退出状态未知。
+
+probe 确定实例：`20261005-181832_job188641_g4_tp2_seed1_hvp_integration_probe`，
+位于 `n8/raw/integration_probe/`，其下 `fisher_kqb_probe_n8_u0008/` 为实际输出。
+两份日志分别为部署下 `logs/slurm/fisher-kqb-integration-g4-188641.out` 和
+`logs/slurm/fisher-kqb-n8-g4-188660.out`。正式设置为 12 轮、96 updates，不沿用
+probe 的 mini-batch=8。提交时账户空间约 38.72 GB/268.44 GB；没有复制基座或把
+测量权重写入持久目录，`SAVE_FREQ=-1`。
 
 提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
