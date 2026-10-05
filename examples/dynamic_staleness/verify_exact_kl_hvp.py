@@ -108,6 +108,13 @@ def exact_product(loss, parameters, direction):
     return result
 
 
+def validate_report(report, require_convergence):
+    if not report["logic_passed"]:
+        raise RuntimeError("The fixed anchor changed during the probe")
+    if require_convergence and not report["converged"]:
+        raise RuntimeError("Reached the iteration limit without satisfying the residual tolerance")
+
+
 def synchronize(gpus):
     for device in range(gpus):
         torch.cuda.synchronize(device)
@@ -134,6 +141,7 @@ def run(args):
                    "gpus": [torch.cuda.get_device_name(i) for i in range(args.gpus)],
                    "model_path": str(args.model_path), "seed": args.seed,
                    "steps": args.steps, "tolerance": args.tolerance,
+                   "require_convergence": args.require_convergence,
                    "parameter_dtype": "float32", "kl_dtype": "float64",
                    "attention": "eager", "optimizer_updates": 0, "fsdp": False,
                    "prompts": PROMPTS, "positions_per_prompt": 2, "vocabulary": "full"}
@@ -213,8 +221,7 @@ def run(args):
               "memory": memory(args.gpus)}
     write_json(args.output / "exact.json", report)
     emit({"completed": report})
-    if not report["logic_passed"]:
-        raise RuntimeError("The fixed anchor changed during the probe")
+    validate_report(report, args.require_convergence)
 
 
 if __name__ == "__main__":
@@ -225,6 +232,8 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--tolerance", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=20261005)
+    parser.add_argument("--require-convergence", action="store_true",
+                        help="Fail after saving diagnostics if the residual tolerance was not met")
     arguments = parser.parse_args()
     if arguments.gpus < 1 or arguments.steps < 1 or arguments.tolerance <= 0:
         parser.error("gpus, steps and tolerance must be positive")

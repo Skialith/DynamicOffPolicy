@@ -14,6 +14,15 @@ SPEC.loader.exec_module(probe)
 
 
 class ExactHvpTest(unittest.TestCase):
+    def test_strict_convergence_validation(self):
+        unfinished = {"logic_passed": True, "converged": False}
+        probe.validate_report(unfinished, require_convergence=False)
+        with self.assertRaisesRegex(RuntimeError, "iteration limit"):
+            probe.validate_report(unfinished, require_convergence=True)
+        probe.validate_report({"logic_passed": True, "converged": True}, require_convergence=True)
+        with self.assertRaisesRegex(RuntimeError, "anchor changed"):
+            probe.validate_report({"logic_passed": False, "converged": True}, require_convergence=True)
+
     def test_chunked_scalars_and_normalization(self):
         direction = [torch.tensor([1.0, -2.0, 3.0]), torch.tensor([4.0, 5.0])]
         product = [torch.tensor([2.0, 3.0, 4.0]), torch.tensor([-1.0, 2.0])]
