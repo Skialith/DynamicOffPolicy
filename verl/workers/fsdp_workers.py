@@ -1044,6 +1044,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         config = self.config.actor
         rank = dist.get_rank()
         self.actor_optimizer.zero_grad(set_to_none=True)
+        # No-grad KL scoring can leave the root unsharded, as in compute_log_prob.
+        if self.actor_module_fsdp._handle is not None:
+            self.actor_module_fsdp._handle.reshard(True)
         with FSDP.state_dict_type(
             self.actor_module_fsdp, StateDictType.FULL_STATE_DICT,
             FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
@@ -1078,6 +1081,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if message[0] is not None:
             raise RuntimeError(message[0]["error"])
         dist.barrier()
+        if self.actor_module_fsdp._handle is not None:
+            self.actor_module_fsdp._handle.reshard(True)
         offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         offload_fsdp_optimizer(self.actor_optimizer)
         aggressive_empty_cache(force_sync=True)

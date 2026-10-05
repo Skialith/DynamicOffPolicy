@@ -37,6 +37,8 @@ SLURM_DEPENDENCY=afterok:<probe-job-id> bash experiments/20261005_fisher_kqb_n4_
 提交前 CPU 自检：五项通过，包括真实 FP32 state_dict 往返、全参数微型 Qwen3
 double backward、逐前缀加权 HVP 与显式 Fisher 一致、真实 update norm、因果位置
 选择以及未收敛/缺失字段必须拒绝。静态编译与 shell 语法检查通过；这不替代 GPU probe。
+既有三项 HVP 回归测试通过；真实入口的 N=8 配置预览已核对 12 轮、96 updates、
+mini-batch=256、四卡可见、warmup=0 和 save_freq=-1。
 
 ## 产物
 

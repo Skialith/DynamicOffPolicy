@@ -46,6 +46,8 @@ SLURM_DEPENDENCY=afterok:<probe-job-id> bash experiments/20261005_fisher_kqb_n4_
 提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
 shell 语法检查通过；不将 CPU 自检等同于真实四卡训练集成已通过。
+既有三项 HVP 回归测试通过；正式 N=8 配置预览通过，确认 12 轮、96 updates、
+mini-batch=256、四卡可见、warmup=0 和 save_freq=-1。
 
 ## 产物
 
