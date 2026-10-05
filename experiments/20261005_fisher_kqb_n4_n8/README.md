@@ -34,6 +34,9 @@ offload 与独立测量模型间切换，必须先通过集成 probe。
 - 三项均使用独立 FP32、eval、eager-attention、TF32 关闭的按层四卡测量模型；
   log-softmax/KL 计算 FP64，HVP/方向/Fv 为 FP32，向量标量乘积 FP32 后 FP64 累加。
   原有 BF16 训练侧 KL 字段保留，不与新 `hvp_*` 字段混作同精度测量。
+  真实长前缀 OOM 后，二阶图 saved activations 改存普通 CPU memory、按需原精度
+  取回 GPU；已常驻 GPU 的权重/方向保留原存储引用，避免无意义的全参数搬运。
+  在第二次反传前释放第一次梯度值；不改变 HVP 对象或改用差分。
 - 每轮只有 anchor λ；幂迭代残差 `||Fv-λv||/||Fv|| <= 1e-3` 后提前结束，
   200 次/单次测量 6 小时为异常限额，触顶未收敛则失败，不沿用不合格 λ。
 - 每次 update norm 来自分片参数更新前后真实差值，累计 norm 来自 θ_(t+a)-θ_t；

@@ -31,7 +31,8 @@ trajectory 数对齐，不按 rollout 数对齐；本设置共 24 轮。
 SLURM_DEPENDENCY=afterok:<probe-job-id> bash experiments/20261005_fisher_kqb_n4_n8/scripts/submit_experiment.sh n4
 ```
 
-当前准备提交；集成 probe、正式 job ID、依赖与核验时间将在实际提交后补充。
+当前尚未提交正式作业；前置 probe 188038 在第一次 HVP 的第二次反传 OOM，失败。
+修复和 probe 详情见 [N=8 的状态记录](../n8/README.md)；正式作业只依赖后续通过的 probe。
 时限 7 天是资源兜底，不是估算完成时间。
 
 提交前 CPU 自检：五项通过，包括真实 FP32 state_dict 往返、全参数微型 Qwen3

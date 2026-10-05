@@ -58,14 +58,40 @@ def weighted_kl(logits, anchor, weights):
     return (per_position * weights.to(logits.device)).sum()
 
 
+def offload_saved_activations(parameters, direction=()):
+    """Offload graph storage, without copying weights/v that already stay on GPU."""
+    persistent = {(value.device, value.untyped_storage().data_ptr())
+                  for value in (*parameters, *direction)}
+
+    def pack(tensor):
+        device = tensor.device
+        if device.type != "cuda" or (device, tensor.untyped_storage().data_ptr()) in persistent:
+            return device, tensor.detach()
+        saved = torch.empty_like(tensor, device="cpu")
+        saved.copy_(tensor)
+        return device, saved
+
+    def unpack(packed):
+        device, saved = packed
+        return saved if saved.device == device else saved.to(device)
+
+    return torch.autograd.graph.saved_tensors_hooks(pack, unpack)
+
+
 def make_product(model, rows, anchors):
     parameters = list(model.parameters())
+    calls = 0
 
     def product(direction):
+        nonlocal calls
+        calls += 1
         total = None
-        for row, anchor in zip(rows, anchors):
-            loss = weighted_kl(selected_logits(model, row), anchor, row["weights"])
-            part = exact_product(loss, parameters, direction)
+        started = time.perf_counter()
+        for index, (row, anchor) in enumerate(zip(rows, anchors), 1):
+            # Preserve dtype/values/AD, but store saved graph activations on CPU.
+            with offload_saved_activations(parameters, direction):
+                loss = weighted_kl(selected_logits(model, row), anchor, row["weights"])
+                part = exact_product(loss, parameters, direction)
             if total is None:
                 total = part
             else:
@@ -73,6 +99,11 @@ def make_product(model, rows, anchors):
                     accumulator.add_(value)
                 del part
             del loss
+            if index == 1 or index % 16 == 0 or index == len(rows):
+                print(json.dumps({"hvp_product_progress": {
+                    "call": calls, "completed_rows": index, "total_rows": len(rows),
+                    "seconds": time.perf_counter() - started,
+                }}), flush=True)
         return total
 
     return product
@@ -117,6 +148,31 @@ def displacement_direction(named_parameters, anchor, current):
     return direction
 
 
+def verify_gpu_offload(gpus):
+    """Numerical startup check of the new hooks on the actual cross-GPU path."""
+    torch.manual_seed(17)
+    model = Qwen3ForCausalLM(Qwen3Config(
+        vocab_size=11, hidden_size=8, intermediate_size=12, num_hidden_layers=gpus,
+        num_attention_heads=2, num_key_value_heads=1, head_dim=4,
+        max_position_embeddings=16, tie_word_embeddings=False, attn_implementation="eager",
+    )).eval()
+    place_layers(model, gpus)
+    row = {"input_ids": torch.tensor([[1, 2, 3, 4]]),
+           "position_ids": torch.tensor([[0, 1, 2, 3]]), "indices": torch.tensor([1, 3]),
+           "weights": torch.tensor([0.5, 0.5], dtype=torch.float64)}
+    anchor = selected_logits(model, row).detach().double().log_softmax(-1)
+    parameters = list(model.parameters())
+    direction = [torch.randn_like(parameter) for parameter in parameters]
+    resident = exact_product(weighted_kl(selected_logits(model, row), anchor, row["weights"]), parameters, direction)
+    offloaded = make_product(model, [row], [anchor])(direction)
+    for expected, actual in zip(resident, offloaded):
+        torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
+    report = {"passed": True, "gpus": gpus, "parameter_count": sum(p.numel() for p in parameters),
+              "atol": 1e-6, "rtol": 1e-5}
+    print(json.dumps({"hvp_gpu_offload_self_check": report}), flush=True)
+    return report
+
+
 def run(args):
     torch.set_num_threads(4)
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -124,6 +180,7 @@ def run(args):
     if torch.cuda.device_count() != args.gpus:
         raise RuntimeError("Measurement process must see all allocated GPUs")
     started = time.perf_counter()
+    offload_check = verify_gpu_offload(args.gpus) if args.age == 0 and args.anchor_update == 0 else None
     payload = torch.load(args.context, map_location="cpu", weights_only=True)
     if payload["anchor_update"] != args.anchor_update:
         raise ValueError("Snapshot and rollout anchor do not match")
@@ -147,9 +204,11 @@ def run(args):
             torch.save(anchors, stream)
         maximum_gradient_norm = 0.0
         for row, anchor in zip(rows, anchors):
-            gradient = torch.autograd.grad(weighted_kl(selected_logits(model, row), anchor, row["weights"]), parameters)
+            with offload_saved_activations(parameters):
+                loss = weighted_kl(selected_logits(model, row), anchor, row["weights"])
+                gradient = torch.autograd.grad(loss, parameters)
             maximum_gradient_norm = max(maximum_gradient_norm, vector_dot(gradient, gradient).sqrt().item())
-            del gradient
+            del gradient, loss
         if maximum_gradient_norm > 1e-4:
             raise RuntimeError("Anchor first derivative is not near zero")
         generators = [torch.Generator(device=f"cuda:{i}").manual_seed(args.seed + args.anchor_update + i)
@@ -201,12 +260,16 @@ def run(args):
     report = {"anchor_update": args.anchor_update, "age_after": args.age,
               "optimizer_step": args.anchor_update + args.age, "context_path": str(args.context),
               "parameter_count": sum(p.numel() for p in parameters), "parameter_dtype": "float32",
+              "saved_tensors": "activations_cpu_weights_and_direction_gpu",
+              "gradient_values_released_before_second_backward": True,
               "kl_dtype": "float64", "aggregation": "prompt_equal_then_position_equal",
               "vocabulary": "full", "prompts": len(rows), "positions": sum(len(r["indices"]) for r in rows),
               "maximum_prefix_length": max(r["input_ids"].shape[-1] for r in rows),
               "seconds": time.perf_counter() - started, "memory": memory(args.gpus), "metrics": values}
     if args.age == 0:
         report["power"] = power
+    if offload_check is not None:
+        report["gpu_offload_self_check"] = offload_check
     write_json(args.output, report)
     print(json.dumps({"hvp_completed": report}), flush=True)
 

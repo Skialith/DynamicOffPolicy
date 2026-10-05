@@ -1098,6 +1098,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 script = Path(__file__).resolve().parents[2] / "examples/dynamic_staleness/measure_training_fisher.py"
                 environment = os.environ.copy()
                 environment["CUDA_VISIBLE_DEVICES"] = visible
+                environment["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
                 repository = str(script.parents[2])
                 environment["PYTHONPATH"] = repository + os.pathsep + environment.get("PYTHONPATH", "")
                 command = [

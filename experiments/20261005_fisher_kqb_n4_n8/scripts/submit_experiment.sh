@@ -5,6 +5,7 @@ SETTING=${1:?Use probe, n4 or n8}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../../.." && pwd)
 cd "${REPO_ROOT}"
+module load miniforge3/25.11.0-1 cuda/12.8
 unset KL_PAIR_DIR OUTPUT_DIR OUTPUT_INSTANCE_ROOT RUN_INSTANCE_TAG RUN_TIMESTAMP
 unset RUN_CONFIG_TAG LOGGER_EXPERIMENT_NAME
 

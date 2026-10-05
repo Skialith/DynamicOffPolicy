@@ -40,8 +40,37 @@ bash experiments/20261005_fisher_kqb_n4_n8/scripts/submit_experiment.sh probe
 SLURM_DEPENDENCY=afterok:<probe-job-id> bash experiments/20261005_fisher_kqb_n4_n8/scripts/submit_experiment.sh n8
 ```
 
-当前准备提交；probe 时限 24 小时，正式时限 7 天。实际 job ID、时间、依赖和核验
-状态在提交后补充；时限不是可靠完成时间预测。
+probe 时限 24 小时，正式时限 7 天；时限不是可靠完成时间预测。两组正式作业尚未
+提交，不能把短前缀 HVP 验证或 CPU 自检当作集成 probe 已通过。
+
+### 首次集成 probe：188038
+
+提交 2026-10-05 14:41:35；开始 14:41:52；结束 14:54:30，Asia/Shanghai，
+elapsed 12:38。2026-10-05 重新核验 `FAILED 1:0`；实际 4 GPU、32 CPU、502400 MiB
+主存。部署源码为 `27aac9b`。日志：独立部署下
+`logs/slurm/fisher-kqb-integration-g4-188038.out`。
+
+真实 rollout、64-prompt 前缀保存、FSDP full-state 导出及 offload 后进入独立测量。
+第一个 anchor、第一次 HVP 的第二次 `autograd.grad` 在 GPU 3 OOM，追加申请 2.32 GiB
+时只余 667.56 MiB；该测量进程已占 74.98 GiB，PyTorch allocated 63.31 GiB、reserved
+未用 11.18 GiB。没有完成一次幂迭代或真实 optimizer update，不记为通过。
+
+确定输出实例：`20261005-144152_job188038_g4_tp2_seed1_hvp_integration_probe`，其下
+`fisher_kqb_probe_n8_u0008/` 位于 `n8/raw/integration_probe/`。持久产物约 7.6 MiB，
+不含训练权重；异常路径会清理私有 anchor/cache，不改写基座资产。用户用量中断发生
+在提交后，正式两组尚未排队。
+
+修复方向：保持全词表、64 prompts、长度上限和 FP32/FP64 精度，二阶图 saved tensors
+放普通 CPU memory（不累积大规模锁页缓存），但已常驻 GPU 的权重/方向不重复拷贝；第一次梯度值完成
+contraction 后立即释放，测量子进程启用 expandable segments。仍为精确双反向 AD，
+不使用差分、截短正式测量或降低精度。
+新作业首次 anchor 在八十亿参数测量前，以四卡微型 Qwen3 比较常驻图 HVP 与 offload
+HVP（逐参数 atol=1e-6、rtol=1e-5）；不一致则直接失败。这是新 GPU 搬运路径的
+数值自检，不代替真实 8B 的显存与全 age 集成验收。
+
+复测准备：最终选择性 offload 的六项训练测量 CPU 检查通过；既有三项精确 HVP
+回归检查通过；编译、shell 语法与 diff 检查通过。GPU 搬运和真实 8B 的显存是否
+通过，以重提交作业为准，不由 CPU 检查推出。
 
 提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
@@ -55,3 +84,5 @@ mini-batch=256、四卡可见、warmup=0 和 save_freq=-1。
 `n8/raw/formal/`；每作业唯一实例，以日志的 `output=` 为准。
 `kl_updates.jsonl` 含三项和 norm；`hvp_diagnostics/start_*/age_*.json` 保存逐 age 标量、
 显存和 anchor 幂迭代 history；`hvp_validation.json` 是结束验收。probe 与正式不混合。
+
+- [188038 原始失败日志](raw/integration_probe_job188038/fisher-kqb-integration-g4-188038.out)：已归档，raw 不入 Git。

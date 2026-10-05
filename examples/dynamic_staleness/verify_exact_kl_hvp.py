@@ -104,6 +104,8 @@ def exact_product(loss, parameters, direction):
     gradient = torch.autograd.grad(loss, parameters, create_graph=True)
     contraction = sum((g * v).sum().to(parameters[0].device)
                       for g, v in zip(gradient, direction))
+    # The scalar contraction retains the graph, not a need for all gradient values.
+    del gradient
     result = list(torch.autograd.grad(contraction, parameters))
     return result
 

@@ -95,6 +95,23 @@ class TrainingFisherTest(unittest.TestCase):
         expected = 0.5 * displacement.double() @ fisher @ displacement.double()
         torch.testing.assert_close(quadratic, expected, rtol=1e-5, atol=1e-10)
 
+    def test_cpu_saved_graph_matches_resident_qwen_hvp(self):
+        torch.manual_seed(17)
+        model = self.tiny_model().eval()
+        row = {"input_ids": torch.tensor([[1, 2, 3, 4]]),
+               "position_ids": torch.tensor([[0, 1, 2, 3]]),
+               "indices": torch.tensor([1, 3]), "weights": torch.tensor([0.5, 0.5], dtype=torch.float64)}
+        anchor = measure.selected_logits(model, row).detach().double().log_softmax(-1)
+        parameters = list(model.parameters())
+        direction = [torch.randn_like(parameter) for parameter in parameters]
+        resident = measure.exact_product(
+            measure.weighted_kl(measure.selected_logits(model, row), anchor, row["weights"]),
+            parameters, direction,
+        )
+        offloaded = measure.make_product(model, [row], [anchor])(direction)
+        for expected, actual in zip(resident, offloaded):
+            torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+
     def test_actual_update_norm_and_power_convergence(self):
         parameter = torch.nn.Parameter(torch.tensor([1.0, -2.0, 0.0]))
         before = [parameter.detach().clone()]
