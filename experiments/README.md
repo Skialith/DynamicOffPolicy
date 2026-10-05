@@ -21,7 +21,7 @@ experiments/scripts/sync_remote_raw_artifacts.sh
 
 | 实验 | 运行与本地归档状态 | 结果记录 | 入口 |
 | --- | --- | --- | --- |
-| 2026-10-05：等 96 次更新 Fisher K/Q/B N=4/8 | probe 188641 主存 OOM；正式 188659/188660 已取消，正在修复 probe 内存 | 尚未要求分析 | [实验族入口](20261005_fisher_kqb_n4_n8/README.md) |
+| 2026-10-05：等 96 次更新 Fisher K/Q/B N=4/8 | 重算修复十项 CPU 测试通过；probe 188840 运行中；正式 188659/188660 保持取消 | 尚未要求分析 | [实验族入口](20261005_fisher_kqb_n4_n8/README.md) |
 | 2026-10-04：8B 四卡精确 KL-HVP 工程探针 | 187793/187794 串行完成，两个初值均第 30 次迭代残差达标；无新增权重 | 尚未要求正式分析 | [README](20261004_exact_kl_hvp_8b_4gpu/README.md) |
 | 2026-10-04：小模型精确 KL-HVP 与 FSDP 梯度差分对照 | 165 对照完成；0.6B 跨卡/单卡精确 AD 通过，固定尺度差分数值验收失败 | 原始自检已归档，尚未要求正式分析 | [README](20261004_kl_hvp_exact_vs_fsdp_fd/README.md) |
 | 2026-09-24：Frozen-Fisher 谱估计兼容性验证 | 本地公式与静态检查通过；jobs 169831/169835 排队中 | 尚未要求分析 | [README](20260924_fisher_spectral_compatibility/README.md) |

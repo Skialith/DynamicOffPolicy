@@ -119,6 +119,37 @@ RSS 和 saved tensors 存活/峰值字节诊断。微型 CPU/GPU 对照须检查
 取得结果，SSH 网关连续两次报告 `server ssh.paracloud.com not responding`。
 不能记作测试通过，也尚未重提 GPU probe。正式两组保持取消状态。
 
+### 连接恢复、CPU 回归与重提：188840
+
+2026-10-05 20:36:06，SSH 状态查询恢复正常，确认正式 188659/188660 仍为取消。
+环境没有 pytest，使用 Python 内置 unittest 执行 `test_training_fisher.py` 七项和
+`test_exact_kl_hvp.py` 三项；十项全部通过，测试执行 0.296 秒（不含环境导入）。
+包括重算前后逐参数 HVP 对照（atol=1e-6、rtol=1e-5）、eval 保持、显式 Fisher、
+真实位移 norm、未收敛拒绝，以及保存图释放检查。32-token 微型模型的 saved tensor
+hook 字节计数峰值从 189024 降至 142208，约减少 24.8%，结束后计数为零；这是微型
+保存图计数，不是进程 RSS 或真实 8B 内存节省率。Python 编译、shell 语法、diff 检查通过。
+
+| 项目 | 记录 |
+| --- | --- |
+| probe job | 188840，`fisher-kqb-integration-g4` |
+| 测量源码 | `c282f3c`，按层非重入重算与 CPU 导数图存储；部署后 CPU 测试通过 |
+| 提交 / 开始 | 2026-10-05 20:41:08 / 20:41:08，Asia/Shanghai |
+| 依赖 | 无；本次只提交 probe，不重提正式实验 |
+| 状态核验 | 2026-10-05 20:42:37：`RUNNING`，尚未结束；不能将运行中的 ExitCode 0:0 视作通过 |
+| 实际资源 | `d1n41a28g03`；4×A800-SXM4-80GB、32 CPU、502400 MiB 主存 |
+| 日志 | 部署下 `logs/slurm/fisher-kqb-integration-g4-188840.out` |
+
+沿用同一集成设置：N=8、mini-batch=8、8 次真实更新、64 prompts×最多 8 个位置、
+完整长度上限、全参数/全词表、FP32/FP64、残差 1e-3/cap=200、SAVE_FREQ=-1。
+没有新增模型资产或保存训练权重。重提时账户父目录用量约 38.73 GB、限额 268.44 GB。
+真实四卡 startup 数值自检和完整 8B 长前缀/八个 age 的内存与收敛验收，以本作业日志
+和 `hvp_validation.json` 为准；CPU 测试不代替集成通过。
+
+确定输出实例：`20261005-204108_job188840_g4_tp2_seed1_hvp_integration_probe`，
+位于 `n8/raw/integration_probe/`，实际输出为其下 `fisher_kqb_probe_n8_u0008/`。
+第一轮 FVP 的 `hvp_memory` 逐前缀记录 forward/两次 backward/结束阶段及主存，
+用来检查重算后峰值是否降低、每条二阶图是否释放，不保存大向量快照。
+
 首次集成提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
 shell 语法检查通过；不将 CPU 自检等同于真实四卡训练集成已通过。
