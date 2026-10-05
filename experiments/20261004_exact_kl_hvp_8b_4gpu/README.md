@@ -17,7 +17,7 @@ KL 的二阶自动微分和 Power Iteration 是否可运行。沿用
 | --- | --- |
 | 模型 | 已有离线 Qwen3-8B-Base，全部参数参与；eager attention、eval、无 cache、无 checkpointing |
 | 前缀分布 | 四个固定数学 prompt，各取末尾两个有效位置；prompt/位置等权，全词表 KL |
-| 资源 | 并行云 `gpu_a800`，4×A800-80GB、4 CPU、96 GiB 主存；一进程按层跨卡，非 FSDP、非 rollout TP |
+| 资源 | 并行云 `gpu_a800`，4×A800-SXM4-80GB；作业 187752 实际分配 32 CPU、502400 MiB 主存；一进程按层跨卡，非 FSDP、非 rollout TP |
 | 精度 | FP32 参数与方向；FP64 输出 log-softmax/KL、标量归约累计；关闭 TF32 |
 | 谱算法 | Power Iteration，最多 20 次 HVP，相对特征残差阈值 `1e-3` |
 | seed | 20261005，各 GPU 的方向生成器用 seed 加 GPU 编号 |
@@ -30,6 +30,41 @@ KL 的二阶自动微分和 Power Iteration 是否可运行。沿用
 收敛状态分开记录。当前不建立正式分析记录或派生图表。
 
 ## 提交与状态
+
+### 已完成工程探针：2026-10-05 重试
+
+2026-10-05 12:51:31（Asia/Shanghai）核验：写入配额阻塞未重现，五个小脚本/自检文件
+通过 rsync 完成部署，传输约 27 KB；远端 SHA256 与本地一致，shell 语法检查通过。
+没有复制、删除或覆盖基座权重，也没有修改原训练仓库。本次明确不调用 `torch.save`、
+`save_pretrained` 或 checkpoint 保存；只保存三个小型 JSON 和 Slurm 文本日志。
+离线加载使用 `local_files_only=True`，不下载第二份模型。已有基座资产保留原样。
+
+| 项目 | 作业 187752 |
+| --- | --- |
+| 提交入口 | 独立部署目录中的 `examples/dynamic_staleness/submit_slurm.sh exact_hvp_probe` |
+| 提交 / 开始 / 结束 | 2026-10-05 12:48:44 / 12:48:52 / 12:50:05，Asia/Shanghai；Slurm elapsed 为 1 分 13 秒 |
+| 状态 | `COMPLETED`，退出码 `0:0`；完成全部 20 次精确 HVP；运行逻辑验收通过，谱收敛验收未达标 |
+| 节点 / GPU | `d1n41a28g03`，4×A800-SXM4-80GB |
+| CPU / 主存 | Slurm 实际分配 32 CPU、502400 MiB；原计划的 SBATCH 环境变量没有体现为对应请求值，以实际分配为准 |
+| 时限 / 依赖 | 20 分钟 / 无；实际结束时间来自 sacct，不采用运行中显示的预计时限终点 |
+| 环境 | Python 3.12.14、PyTorch 2.8.0+cu128、Transformers 4.57.1、CUDA 12.8 |
+| 代码 | `67cf3ce` 中的探针实现，本次未修改计算逻辑 |
+| 输出实例 | `20261005-124852_job187752_g4_mp4_seed20261005_exact_probe` |
+
+远端部署：`/data/run01/scyb980/cyt/src/exact_kl_hvp_probe_20261004/`。
+确定的远端输出为上述部署目录下的
+`experiments/20261004_exact_kl_hvp_8b_4gpu/raw/20261005-124852_job187752_g4_mp4_seed20261005_exact_probe/`。
+日志：`logs/slurm/exact-kl-hvp-8b-g4-187752.out`；计算缓存：`/tmp/ds-187752/`。
+三个 JSON 和 Slurm 日志已按同名实例同步至本地 `raw/`，总计 50,801 bytes。
+远端测量输出目录仅有 `environment.json`、`batch.json`、`exact.json`；另存上述 Slurm
+日志。没有权重、checkpoint、梯度或参数规模方向向量文件。
+
+原始自检中 `logic_passed=true`、`parameters_unchanged=true`，anchor 输出未改变；完成
+20 次 HVP 及迭代，不存在 OOM 或 double-backward 算子报错。`converged=false`，最后
+相对特征残差仍高于预设 `1e-3`，不将退出码 0 等同于最大特征值已收敛。数值明细留在
+原始 `exact.json`；本次没有增加迭代预算或补提交作业，也不创建正式分析记录。
+
+### 历史准备阻塞：2026-10-04
 
 2026-10-04 23:46（Asia/Shanghai）核验：尚未提交，没有 job ID；没有执行 8B GPU
 计算。部署脚本时写入明确返回 `Disk quota exceeded (122)`，因此停在提交前。公共文件
@@ -53,8 +88,8 @@ KL 的二阶自动微分和 Power Iteration 是否可运行。沿用
 确认的已有模型资产：
 `/data/run01/scyb980/cyt/src/verl-staleness/assets/models/Qwen3-8B-Base`。
 Python 使用原部署环境 `.venv/bin/python`，已确认 PyTorch 2.8.0+cu128、Transformers
-4.57.1，与 165 小模型环境一致；原始输出存 `/data/run01`，缓存走 Slurm 的
-`/tmp/ds-$SLURM_JOB_ID/`。GPU 开始/结束时间及实际输出实例在提交后补充，不提前填写。
+4.57.1，与 165 小模型的关键软件版本一致；原始输出存 `/data/run01`，缓存走 Slurm 的
+`/tmp/ds-$SLURM_JOB_ID/`。
 
 配额解除、上述四个部署文件同步完成后的提交设置：
 
@@ -78,4 +113,4 @@ SBATCH_CPUS_PER_TASK=4 SBATCH_MEM=96G TIME_LIMIT=00:20:00 JOB_NAME=exact-kl-hvp-
 ## 产物入口
 
 - [实验索引](../README.md)
-- 原始产物：作业完成后按确定实例归档至本实验 `raw/`，不进入 Git。
+- [作业 187752 原始归档](raw/20261005-124852_job187752_g4_mp4_seed20261005_exact_probe/)：已同步，不进入 Git。
