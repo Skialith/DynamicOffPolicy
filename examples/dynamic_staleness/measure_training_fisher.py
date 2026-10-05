@@ -5,12 +5,14 @@ caches live in a private, job-local directory and are removed by the training wo
 """
 
 import argparse
+from functools import partial
 import json
 import math
 import time
 from pathlib import Path
 
 import torch
+from torch.utils.checkpoint import checkpoint
 from transformers import Qwen3Config, Qwen3ForCausalLM
 
 from examples.dynamic_staleness.verify_exact_kl_hvp import (
@@ -58,8 +60,45 @@ def weighted_kl(logits, anchor, weights):
     return (per_position * weights.to(logits.device)).sum()
 
 
-def offload_saved_activations(parameters, direction=()):
+def checkpoint_decoder_layers(model):
+    """Recompute layer activations while keeping eval mode and second-order AD.
+
+    Transformers' native checkpoint switch is gated on training mode. Wrap the
+    forwards instead: device-transfer pre-hooks still run before each layer.
+    """
+    model.gradient_checkpointing_disable()
+    for layer in model.model.layers:
+        layer.forward = partial(checkpoint, layer.forward, use_reentrant=False)
+
+
+class _OffloadedActivation:
+    def __init__(self, tensor, statistics):
+        self.tensor = tensor
+        self.statistics = statistics
+        self.size = tensor.numel() * tensor.element_size()
+        statistics["live_cpu_bytes"] += self.size
+        statistics["copied_cpu_bytes"] += self.size
+        statistics["peak_cpu_bytes"] = max(statistics["peak_cpu_bytes"], statistics["live_cpu_bytes"])
+
+    def __del__(self):
+        self.statistics["live_cpu_bytes"] -= self.size
+
+
+def process_memory():
+    # Linux measurement jobs; only scalars, never tensor/graph snapshots.
+    result = {}
+    with Path("/proc/self/status").open() as stream:
+        for line in stream:
+            if line.startswith(("VmRSS:", "VmHWM:")):
+                key, value, _ = line.split()
+                result[key.rstrip(":")] = int(value) * 1024
+    return result
+
+
+def offload_saved_activations(parameters, direction=(), statistics=None):
     """Offload graph storage, without copying weights/v that already stay on GPU."""
+    if statistics is None:
+        statistics = {"live_cpu_bytes": 0, "peak_cpu_bytes": 0, "copied_cpu_bytes": 0}
     persistent = {(value.device, value.untyped_storage().data_ptr())
                   for value in (*parameters, *direction)}
 
@@ -69,10 +108,12 @@ def offload_saved_activations(parameters, direction=()):
             return device, tensor.detach()
         saved = torch.empty_like(tensor, device="cpu")
         saved.copy_(tensor)
-        return device, saved
+        return device, _OffloadedActivation(saved, statistics)
 
     def unpack(packed):
         device, saved = packed
+        if isinstance(saved, _OffloadedActivation):
+            saved = saved.tensor
         return saved if saved.device == device else saved.to(device)
 
     return torch.autograd.graph.saved_tensors_hooks(pack, unpack)
@@ -88,10 +129,22 @@ def make_product(model, rows, anchors):
         total = None
         started = time.perf_counter()
         for index, (row, anchor) in enumerate(zip(rows, anchors), 1):
-            # Preserve dtype/values/AD, but store saved graph activations on CPU.
-            with offload_saved_activations(parameters, direction):
+            statistics = {"live_cpu_bytes": 0, "peak_cpu_bytes": 0, "copied_cpu_bytes": 0}
+
+            def progress(stage):
+                if calls == 1:
+                    print(json.dumps({"hvp_memory": {
+                        "call": calls, "row": index, "stage": stage,
+                        "prefix_length": row["input_ids"].shape[-1] if "input_ids" in row else None,
+                        **statistics, **process_memory(),
+                    }}), flush=True)
+
+            progress("row_start")
+            # Forward activations are recomputed; derivative graph storage is CPU.
+            with offload_saved_activations(parameters, direction, statistics):
                 loss = weighted_kl(selected_logits(model, row), anchor, row["weights"])
-                part = exact_product(loss, parameters, direction)
+                progress("forward_done")
+                part = exact_product(loss, parameters, direction, progress=progress)
             if total is None:
                 total = part
             else:
@@ -99,6 +152,7 @@ def make_product(model, rows, anchors):
                     accumulator.add_(value)
                 del part
             del loss
+            progress("row_done")
             if index == 1 or index % 16 == 0 or index == len(rows):
                 print(json.dumps({"hvp_product_progress": {
                     "call": calls, "completed_rows": index, "total_rows": len(rows),
@@ -164,6 +218,7 @@ def verify_gpu_offload(gpus):
     parameters = list(model.parameters())
     direction = [torch.randn_like(parameter) for parameter in parameters]
     resident = exact_product(weighted_kl(selected_logits(model, row), anchor, row["weights"]), parameters, direction)
+    checkpoint_decoder_layers(model)
     offloaded = make_product(model, [row], [anchor])(direction)
     for expected, actual in zip(resident, offloaded):
         torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
@@ -190,8 +245,8 @@ def run(args):
     model = Qwen3ForCausalLM.from_pretrained(
         None, config=config, state_dict=anchor_state, torch_dtype=torch.float32, attn_implementation="eager",
     ).eval()
-    model.gradient_checkpointing_disable()
     place_layers(model, args.gpus)
+    checkpoint_decoder_layers(model)
     named_parameters = list(model.named_parameters())
     parameters = [parameter for _, parameter in named_parameters]
     if not all(parameter.requires_grad and parameter.dtype == torch.float32 for parameter in parameters):
@@ -261,6 +316,7 @@ def run(args):
               "optimizer_step": args.anchor_update + args.age, "context_path": str(args.context),
               "parameter_count": sum(p.numel() for p in parameters), "parameter_dtype": "float32",
               "saved_tensors": "activations_cpu_weights_and_direction_gpu",
+              "activation_checkpointing": "decoder_layers_non_reentrant_eval",
               "gradient_values_released_before_second_backward": True,
               "kl_dtype": "float64", "aggregation": "prompt_equal_then_position_equal",
               "vocabulary": "full", "prompts": len(rows), "positions": sum(len(r["indices"]) for r in rows),

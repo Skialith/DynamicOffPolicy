@@ -37,6 +37,10 @@ offload 与独立测量模型间切换，必须先通过集成 probe。
   真实长前缀 OOM 后，二阶图 saved activations 改存普通 CPU memory、按需原精度
   取回 GPU；已常驻 GPU 的权重/方向保留原存储引用，避免无意义的全参数搬运。
   在第二次反传前释放第一次梯度值；不改变 HVP 对象或改用差分。
+  CPU offload 的真实集成仍达到主存限额后，增加 decoder layer 的非重入 activation
+  checkpoint：保持 eval，由反传按需重算前向中间量，而不是将整个前向图都复制到 CPU。
+  第一轮 FVP 逐前缀记录长度、前向/两次反传阶段、saved tensor CPU 存活/峰值字节和
+  进程 RSS，用于区分长前缀单次峰值与跨前缀存储未释放。数学定义和精度不变。
 - 每轮只有 anchor λ；幂迭代残差 `||Fv-λv||/||Fv|| <= 1e-3` 后提前结束，
   200 次/单次测量 6 小时为异常限额，触顶未收敛则失败，不沿用不合格 λ。
 - 每次 update norm 来自分片参数更新前后真实差值，累计 norm 来自 θ_(t+a)-θ_t；

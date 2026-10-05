@@ -108,9 +108,53 @@ class TrainingFisherTest(unittest.TestCase):
             measure.weighted_kl(measure.selected_logits(model, row), anchor, row["weights"]),
             parameters, direction,
         )
+        measure.checkpoint_decoder_layers(model)
         offloaded = measure.make_product(model, [row], [anchor])(direction)
+        self.assertTrue(all(not module.training for module in model.modules()))
         for expected, actual in zip(resident, offloaded):
             torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+
+    def test_checkpoint_reduces_saved_graph_and_matches_hvp(self):
+        torch.manual_seed(17)
+        model = self.tiny_model().eval()
+        row = {"input_ids": torch.tensor([[1, 2, 3, 4] * 8]),
+               "position_ids": torch.arange(32).unsqueeze(0),
+               "indices": torch.tensor([15, 31]), "weights": torch.tensor([0.5, 0.5], dtype=torch.float64)}
+        anchor = measure.selected_logits(model, row).detach().double().log_softmax(-1)
+        parameters = list(model.parameters())
+        direction = [torch.randn_like(parameter) for parameter in parameters]
+
+        class Saved:
+            def __init__(self, tensor, stats):
+                self.tensor = tensor.detach()
+                self.stats = stats
+                self.size = tensor.numel() * tensor.element_size()
+                stats["live"] += self.size
+                stats["peak"] = max(stats["peak"], stats["live"])
+
+            def __del__(self):
+                self.stats["live"] -= self.size
+
+        def evaluate():
+            stats = {"live": 0, "peak": 0}
+            with torch.autograd.graph.saved_tensors_hooks(
+                lambda tensor: Saved(tensor, stats), lambda packed: packed.tensor,
+            ):
+                loss = measure.weighted_kl(measure.selected_logits(model, row), anchor, row["weights"])
+                result = measure.exact_product(loss, parameters, direction)
+            del loss
+            self.assertEqual(stats["live"], 0)
+            return result, stats["peak"]
+
+        resident, original_peak = evaluate()
+        measure.checkpoint_decoder_layers(model)
+        recomputed, checkpoint_peak = evaluate()
+        for expected, actual in zip(resident, recomputed):
+            torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+        self.assertLess(checkpoint_peak, original_peak)
+        print(json.dumps({"checkpoint_saved_graph_bytes": {
+            "resident_peak": original_peak, "checkpoint_peak": checkpoint_peak,
+        }}))
 
     def test_actual_update_norm_and_power_convergence(self):
         parameter = torch.nn.Parameter(torch.tensor([1.0, -2.0, 0.0]))

@@ -100,13 +100,17 @@ def frozen_kl(logits, anchor_logp):
     return (anchor_logp.exp() * (anchor_logp - logits.double().log_softmax(-1))).sum(-1).mean()
 
 
-def exact_product(loss, parameters, direction):
+def exact_product(loss, parameters, direction, progress=None):
     gradient = torch.autograd.grad(loss, parameters, create_graph=True)
+    if progress is not None:
+        progress("first_backward_done")
     contraction = sum((g * v).sum().to(parameters[0].device)
                       for g, v in zip(gradient, direction))
     # The scalar contraction retains the graph, not a need for all gradient values.
     del gradient
     result = list(torch.autograd.grad(contraction, parameters))
+    if progress is not None:
+        progress("second_backward_done")
     return result
 
 

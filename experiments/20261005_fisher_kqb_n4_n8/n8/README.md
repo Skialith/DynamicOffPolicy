@@ -96,7 +96,30 @@ probe 确定实例：`20261005-181832_job188641_g4_tp2_seed1_hvp_integration_pro
 probe 的 mini-batch=8。提交时账户空间约 38.72 GB/268.44 GB；没有复制基座或把
 测量权重写入持久目录，`SAVE_FREQ=-1`。
 
-提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
+### 188641 主存失败与后续取消
+
+2026-10-05 19:01 核验：188641 在 18:56:04 结束，elapsed 37:33，
+`OUT_OF_MEMORY 0:125`。Slurm batch MaxRSS 为 514451976 KiB，接近实际分配的
+502400 MiB（约 490.6 GiB）主存；测量子进程被 SIGKILL，日志记录 batch oom_kill。
+不是旧 probe 的 CUDA allocation 错误。真实 8B 完成了至少第一个前缀的 HVP
+（1/64，79.96 秒），但没有完整 64-prefix FVP、幂迭代 λ、age_00 报告或结束验收。
+仅凭旧日志不能断言是单条长前缀峰值还是跨前缀累积。
+
+19:04:19，按用户授权取消尚未启动的 N=8 正式任务 188660；Slurm 确认为
+`CANCELLED by 2506`。N=4 的取消信息见其 README。不重新排队正式任务。
+
+针对性修复：在 eval 下为 decoder forward 显式使用 PyTorch 非重入 checkpoint，
+反传重算前向中间量；仍保留精确双反向、全参数、全词表、64 prompts、完整长度上限
+与 FP32/FP64，CPU offload 仅保存仍需保留的导数图。加入逐前缀、逐求导阶段的进程
+RSS 和 saved tensors 存活/峰值字节诊断。微型 CPU/GPU 对照须检查每个参数的 HVP
+一致性和保存图减少；真实 8B 主存与八个 age 验收仍以新 probe 为准。
+
+2026-10-05 19:21，修复的三个 Python 文件编译与 diff 检查通过，提交入口 shell
+语法通过。候选代码及微型测试已同步到无活动作业的独立部署；CPU 数值回归尚未
+取得结果，SSH 网关连续两次报告 `server ssh.paracloud.com not responding`。
+不能记作测试通过，也尚未重提 GPU probe。正式两组保持取消状态。
+
+首次集成提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
 shell 语法检查通过；不将 CPU 自检等同于真实四卡训练集成已通过。
 既有三项 HVP 回归测试通过；正式 N=8 配置预览通过，确认 12 轮、96 updates、
@@ -110,3 +133,4 @@ mini-batch=256、四卡可见、warmup=0 和 save_freq=-1。
 显存和 anchor 幂迭代 history；`hvp_validation.json` 是结束验收。probe 与正式不混合。
 
 - [188038 原始失败日志](raw/integration_probe_job188038/fisher-kqb-integration-g4-188038.out)：已归档，raw 不入 Git。
+- [188641 原始失败日志](raw/integration_probe_job188641/fisher-kqb-integration-g4-188641.out)：已归档，raw 不入 Git。
