@@ -14,8 +14,9 @@ B_hat_t(a) = 1/2 λ_hat_max(F_t) ||Δ_(t,a)||²
 ```
 
 F_t 是 frozen-anchor、全词表 KL 在 θ_t 处的 Hessian/Fisher。每轮在更新前用精确
-双反向 AD 和幂迭代估计 λ，每个 age 再用实际累计位移方向做一次 HVP 得到 Q；不构造
-或保存完整 Fisher，不使用差分或参数 forward-mode JVP。B_hat 是谱估计构造的候选界，
+FVP 和幂迭代估计 λ，每个 age 再用实际累计位移方向做一次 FVP 得到 Q；不构造
+或保存完整 Fisher，不使用差分。当前修复候选按层计算 J^T F_z Jv，与 anchor 处
+的 KL HVP 数学上相同；原始双反向 HVP 保留为小模型数值参考。B_hat 是谱估计构造的候选界，
 不是有限位移 KL 的严格上界，也不是已获得最大特征值上界证书。
 
 沿用 [165 小模型验证](../20261004_kl_hvp_exact_vs_fsdp_fd/README.md) 的数学路线；
@@ -32,22 +33,29 @@ offload 与独立测量模型间切换，必须先通过集成 probe。
 - 每轮选择 64 个 prompt group，各选择一个有效 response 和最多 8 个有效位置，
   prompt 等权、再按有效位置等权；同一轮 K/Q/B 使用完全相同 q_t 和全词表。
 - 三项均使用独立 FP32、eval、eager-attention、TF32 关闭的按层四卡测量模型；
-  log-softmax/KL 计算 FP64，HVP/方向/Fv 为 FP32，向量标量乘积 FP32 后 FP64 累加。
+  log-softmax/KL/F_z 计算 FP64，方向/Jv/Fv 为 FP32，向量标量乘积 FP32 后 FP64 累加。
   原有 BF16 训练侧 KL 字段保留，不与新 `hvp_*` 字段混作同精度测量。
-  真实长前缀 OOM 后，二阶图 saved activations 改存普通 CPU memory、按需原精度
-  取回 GPU；已常驻 GPU 的权重/方向保留原存储引用，避免无意义的全参数搬运。
-  在第二次反传前释放第一次梯度值；不改变 HVP 对象或改用差分。
-  CPU offload 的真实集成仍达到主存限额后，增加 decoder layer 的非重入 activation
-  checkpoint：保持 eval，由反传按需重算前向中间量，而不是将整个前向图都复制到 CPU。
-  第一轮 FVP 逐前缀记录长度、前向/两次反传阶段、saved tensor CPU 存活/峰值字节和
-  进程 RSS，用于区分长前缀单次峰值与跨前缀存储未释放。数学定义和精度不变。
+  整网双反向的 GPU 图、CPU offload 图及 decoder 前向重算均在真实长前缀上 OOM
+  （工程记录见 n8 README）。当前候选在独立非 FSDP 模型上逐层做参数/输入 JVP，
+  得到全参数方向的 Jv，再乘 F_z，最后逐层重算并做普通 VJP 得到 J^T F_z Jv。
+  切层后只保存 detached 的层输入到 CPU，VJP 最多保留一层的普通反传图，并原精度
+  offload 该层 activations；不保留整网二阶图、不冻结 embedding/head/norm。
+  参数方向通过 dot_h_l = D_h f_l dot_h_(l-1) + D_theta_l f_l v_l 传播，不是只对
+  输入求导。逐层 forward AD 不经过 FSDP，也不依赖 FSDP 输入 JVP 补丁。
+  anchor 零梯度校验同样逐层 VJP。第一轮 FVP 记录逐前缀/层的 CPU 保存图与 RSS。
+  数学对象、q、完整前缀、全词表和精度不变；真实内存效果仍须 GPU probe 验收。
+  逐层 AD 使用 PyTorch 2.8 的 [jvp](https://docs.pytorch.org/docs/2.8/generated/torch.func.jvp.html)
+  与 [functional_call](https://docs.pytorch.org/docs/2.8/generated/torch.func.functional_call.html)；
+  官方接口并不保证所有算子都有 forward AD，因此保留 CPU 与四卡逐参数对照门槛。
 - 每轮只有 anchor λ；幂迭代残差 `||Fv-λv||/||Fv|| <= 1e-3` 后提前结束，
   200 次/单次测量 6 小时为异常限额，触顶未收敛则失败，不沿用不合格 λ。
 - 每次 update norm 来自分片参数更新前后真实差值，累计 norm 来自 θ_(t+a)-θ_t；
   不是 raw gradient norm、不是各步 norm 求和，也不是 AdamW 位移重构。
-- FSDP 只负责普通训练和 CPU full-state 导出；二阶反传在独立非 FSDP 进程执行。
+- FSDP 只负责普通训练和 CPU full-state 导出；Fisher 导数在独立非 FSDP 进程执行。
   暂停训练并 offload actor/optimizer，再借用同四卡；此测量开销单独记录，不声称
   保持原基线吞吐。
+  `FULL_KL_HVP=1` 仍是这套 K/Q/B 测量入口；`FULL_KL_JVP=0` 禁用的是旧 FSDP
+  functional-JVP 路径，不表示独立逐层 backend 不能使用 forward AD。
 - `SAVE_FREQ=-1`：不保存终点 HF 权重或 Adam 状态。临时 anchor/current 权重与概率
   cache 只放 `/tmp/ds-$SLURM_JOB_ID/tmp/fisher-hvp/`，每轮正常完成后清理；异常强杀时
   本地 scratch 可能需要检查，但不会写入持久权重目录。基座资产不改写。

@@ -114,6 +114,61 @@ class TrainingFisherTest(unittest.TestCase):
         for expected, actual in zip(resident, offloaded):
             torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
+    def test_layerwise_fisher_matches_double_backward_all_parameters(self):
+        for tied in (False, True):
+            with self.subTest(tied=tied):
+                torch.manual_seed(37)
+                config = self.tiny_model().config
+                config.num_hidden_layers = 2
+                config.layer_types = ["full_attention"] * 2
+                config.tie_word_embeddings = tied
+                model = Qwen3ForCausalLM(config).eval()
+                row = {"input_ids": torch.tensor([[1, 2, 3, 4, 2, 1]]),
+                       "position_ids": torch.arange(6).unsqueeze(0), "indices": torch.tensor([1, 4, 5]),
+                       "weights": torch.tensor([0.1, 0.3, 0.6], dtype=torch.float64)}
+                anchor = measure.selected_logits(model, row).detach().double().log_softmax(-1)
+                parameters = list(model.parameters())
+                versions = [parameter._version for parameter in parameters]
+                direction = [torch.randn_like(parameter) for parameter in parameters]
+                expected = measure.exact_product(
+                    measure.weighted_kl(measure.selected_logits(model, row), anchor, row["weights"]),
+                    parameters, direction,
+                )
+                stages = []
+                actual = measure.layerwise_fisher_product(model, row, anchor, direction, progress=stages.append)
+                for (name, _), reference, value in zip(model.named_parameters(), expected, actual):
+                    torch.testing.assert_close(value, reference, atol=1e-6, rtol=1e-5, msg=name)
+                torch.testing.assert_close(measure.vector_dot(direction, actual),
+                                           measure.vector_dot(direction, expected), atol=1e-6, rtol=1e-5)
+                self.assertEqual(stages[-1], "row_derivatives_done")
+                self.assertIn("jvp_layer_1", stages)
+                self.assertEqual(versions, [parameter._version for parameter in parameters])
+                self.assertTrue(all(not module.training for module in model.modules()))
+                # A non-anchor target exercises a nonzero first derivative too.
+                target = (measure.selected_logits(model, row).detach().double() + 0.05 *
+                          torch.arange(model.config.vocab_size)).log_softmax(-1)
+                expected_gradient = torch.autograd.grad(
+                    measure.weighted_kl(measure.selected_logits(model, row), target, row["weights"]), parameters,
+                )
+                gradient = measure.layerwise_kl_gradient(model, row, target)
+                for reference, value in zip(expected_gradient, gradient):
+                    torch.testing.assert_close(value, reference, atol=1e-6, rtol=1e-5)
+
+    def test_layerwise_weighted_aggregation_matches_whole_model(self):
+        torch.manual_seed(17)
+        model = self.tiny_model().eval()
+        rows = [{"input_ids": torch.tensor([tokens]),
+                 "position_ids": torch.arange(len(tokens)).unsqueeze(0),
+                 "indices": torch.tensor([len(tokens) - 1]),
+                 "weights": torch.tensor([weight], dtype=torch.float64)}
+                for tokens, weight in [([1, 2, 3], 0.3), ([4, 3, 2, 1], 0.7)]]
+        anchors = [measure.selected_logits(model, row).detach().double().log_softmax(-1) for row in rows]
+        direction = [torch.randn_like(parameter) for parameter in model.parameters()]
+        expected = measure.make_product(model, rows, anchors)(direction)
+        actual = measure.make_layerwise_product(model, rows, anchors)(direction)
+        for reference, value in zip(expected, actual):
+            torch.testing.assert_close(value, reference, atol=1e-6, rtol=1e-5)
+
     def test_checkpoint_reduces_saved_graph_and_matches_hvp(self):
         torch.manual_seed(17)
         model = self.tiny_model().eval()
@@ -152,8 +207,24 @@ class TrainingFisherTest(unittest.TestCase):
         for expected, actual in zip(resident, recomputed):
             torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
         self.assertLess(checkpoint_peak, original_peak)
+        # A fresh model has no legacy checkpoint wrapper inside torch.func.jvp.
+        layerwise_model = self.tiny_model().eval()
+        layerwise_model.load_state_dict(model.state_dict())
+        stats = {"live": 0, "peak": 0}
+        def saved_context():
+            return torch.autograd.graph.saved_tensors_hooks(
+                lambda tensor: Saved(tensor, stats), lambda packed: packed.tensor,
+            )
+        layerwise = measure.layerwise_fisher_product(
+            layerwise_model, row, anchor, direction, saved_context=saved_context,
+        )
+        self.assertEqual(stats["live"], 0)
+        self.assertLess(stats["peak"], checkpoint_peak)
+        for expected, actual in zip(resident, layerwise):
+            torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
         print(json.dumps({"checkpoint_saved_graph_bytes": {
             "resident_peak": original_peak, "checkpoint_peak": checkpoint_peak,
+            "layerwise_peak": stats["peak"],
         }}))
 
     def test_actual_update_norm_and_power_convergence(self):

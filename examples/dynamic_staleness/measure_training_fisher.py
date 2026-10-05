@@ -15,6 +15,7 @@ import torch
 from torch.utils.checkpoint import checkpoint
 from transformers import Qwen3Config, Qwen3ForCausalLM
 
+from examples.dynamic_staleness.layerwise_fisher import layerwise_fisher_product, layerwise_kl_gradient
 from examples.dynamic_staleness.verify_exact_kl_hvp import (
     exact_product, memory, normalize_in_place, place_layers, residual_norm, vector_dot, write_json,
 )
@@ -120,6 +121,7 @@ def offload_saved_activations(parameters, direction=(), statistics=None):
 
 
 def make_product(model, rows, anchors):
+    """Legacy whole-model double backward, retained as a small-model reference."""
     parameters = list(model.parameters())
     calls = 0
 
@@ -152,6 +154,49 @@ def make_product(model, rows, anchors):
                     accumulator.add_(value)
                 del part
             del loss
+            progress("row_done")
+            if index == 1 or index % 16 == 0 or index == len(rows):
+                print(json.dumps({"hvp_product_progress": {
+                    "call": calls, "completed_rows": index, "total_rows": len(rows),
+                    "seconds": time.perf_counter() - started,
+                }}), flush=True)
+        return total
+
+    return product
+
+
+def make_layerwise_product(model, rows, anchors):
+    parameters = list(model.parameters())
+    calls = 0
+
+    def product(direction):
+        nonlocal calls
+        calls += 1
+        total = None
+        started = time.perf_counter()
+        for index, (row, anchor) in enumerate(zip(rows, anchors), 1):
+            statistics = {"live_cpu_bytes": 0, "peak_cpu_bytes": 0, "copied_cpu_bytes": 0}
+
+            def progress(stage):
+                if calls == 1:
+                    print(json.dumps({"hvp_memory": {
+                        "call": calls, "row": index, "stage": stage,
+                        "prefix_length": row["input_ids"].shape[-1],
+                        **statistics, **process_memory(),
+                    }}), flush=True)
+
+            progress("row_start")
+            part = layerwise_fisher_product(
+                model, row, anchor, direction,
+                saved_context=partial(offload_saved_activations, parameters, direction, statistics),
+                progress=progress,
+            )
+            if total is None:
+                total = part
+            else:
+                for accumulator, value in zip(total, part):
+                    accumulator.add_(value)
+                del part
             progress("row_done")
             if index == 1 or index % 16 == 0 or index == len(rows):
                 print(json.dumps({"hvp_product_progress": {
@@ -203,7 +248,7 @@ def displacement_direction(named_parameters, anchor, current):
 
 
 def verify_gpu_offload(gpus):
-    """Numerical startup check of the new hooks on the actual cross-GPU path."""
+    """Compare the layerwise Fisher with the original double-backward HVP."""
     torch.manual_seed(17)
     model = Qwen3ForCausalLM(Qwen3Config(
         vocab_size=11, hidden_size=8, intermediate_size=12, num_hidden_layers=gpus,
@@ -218,11 +263,11 @@ def verify_gpu_offload(gpus):
     parameters = list(model.parameters())
     direction = [torch.randn_like(parameter) for parameter in parameters]
     resident = exact_product(weighted_kl(selected_logits(model, row), anchor, row["weights"]), parameters, direction)
-    checkpoint_decoder_layers(model)
-    offloaded = make_product(model, [row], [anchor])(direction)
+    offloaded = make_layerwise_product(model, [row], [anchor])(direction)
     for expected, actual in zip(resident, offloaded):
         torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
-    report = {"passed": True, "gpus": gpus, "parameter_count": sum(p.numel() for p in parameters),
+    report = {"passed": True, "backend": "layerwise_jvp_fisher_vjp", "gpus": gpus,
+              "parameter_count": sum(p.numel() for p in parameters),
               "atol": 1e-6, "rtol": 1e-5}
     print(json.dumps({"hvp_gpu_offload_self_check": report}), flush=True)
     return report
@@ -246,7 +291,7 @@ def run(args):
         None, config=config, state_dict=anchor_state, torch_dtype=torch.float32, attn_implementation="eager",
     ).eval()
     place_layers(model, args.gpus)
-    checkpoint_decoder_layers(model)
+    model.gradient_checkpointing_disable()
     named_parameters = list(model.named_parameters())
     parameters = [parameter for _, parameter in named_parameters]
     if not all(parameter.requires_grad and parameter.dtype == torch.float32 for parameter in parameters):
@@ -258,19 +303,24 @@ def run(args):
         with cache.open("xb") as stream:
             torch.save(anchors, stream)
         maximum_gradient_norm = 0.0
-        for row, anchor in zip(rows, anchors):
-            with offload_saved_activations(parameters):
-                loss = weighted_kl(selected_logits(model, row), anchor, row["weights"])
-                gradient = torch.autograd.grad(loss, parameters)
+        for index, (row, anchor) in enumerate(zip(rows, anchors), 1):
+            gradient = layerwise_kl_gradient(
+                model, row, anchor, saved_context=partial(offload_saved_activations, parameters),
+            )
             maximum_gradient_norm = max(maximum_gradient_norm, vector_dot(gradient, gradient).sqrt().item())
-            del gradient, loss
+            del gradient
+            if index == 1 or index % 16 == 0 or index == len(rows):
+                print(json.dumps({"hvp_anchor_gradient_progress": {
+                    "completed_rows": index, "total_rows": len(rows),
+                    "maximum_gradient_norm": maximum_gradient_norm, **process_memory(),
+                }}), flush=True)
         if maximum_gradient_norm > 1e-4:
             raise RuntimeError("Anchor first derivative is not near zero")
         generators = [torch.Generator(device=f"cuda:{i}").manual_seed(args.seed + args.anchor_update + i)
                       for i in range(args.gpus)]
         direction = [torch.randn(p.shape, dtype=p.dtype, device=p.device,
                                  generator=generators[p.device.index]) for p in parameters]
-        power = power_iteration(make_product(model, rows, anchors), direction, args.steps, args.tolerance)
+        power = power_iteration(make_layerwise_product(model, rows, anchors), direction, args.steps, args.tolerance)
         del direction
         power["anchor_gradient_max_row_norm"] = maximum_gradient_norm
         write_json(args.cycle / "power.json", power)
@@ -294,7 +344,7 @@ def run(args):
             quadratic = 0.0
         else:
             normalize_in_place(direction, norm)
-            result = make_product(model, rows, anchors)(direction)
+            result = make_layerwise_product(model, rows, anchors)(direction)
             quadratic = 0.5 * norm.item() ** 2 * vector_dot(direction, result).item()
             del result
         del direction
@@ -315,9 +365,9 @@ def run(args):
     report = {"anchor_update": args.anchor_update, "age_after": args.age,
               "optimizer_step": args.anchor_update + args.age, "context_path": str(args.context),
               "parameter_count": sum(p.numel() for p in parameters), "parameter_dtype": "float32",
-              "saved_tensors": "activations_cpu_weights_and_direction_gpu",
-              "activation_checkpointing": "decoder_layers_non_reentrant_eval",
-              "gradient_values_released_before_second_backward": True,
+              "fisher_backend": "layerwise_jvp_fisher_vjp",
+              "saved_tensors": "detached_layer_inputs_cpu_single_layer_vjp_activations_cpu",
+              "whole_model_second_order_graph": False,
               "kl_dtype": "float64", "aggregation": "prompt_equal_then_position_equal",
               "vocabulary": "full", "prompts": len(rows), "positions": sum(len(r["indices"]) for r in rows),
               "maximum_prefix_length": max(r["input_ids"].shape[-1] for r in rows),

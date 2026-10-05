@@ -150,6 +150,37 @@ hook 字节计数峰值从 189024 降至 142208，约减少 24.8%，结束后计
 第一轮 FVP 的 `hvp_memory` 逐前缀记录 forward/两次 backward/结束阶段及主存，
 用来检查重算后峰值是否降低、每条二阶图是否释放，不保存大向量快照。
 
+### 188840 长前缀主存失败与逐层精确 Fisher 修复
+
+2026-10-05 22:44:31，连接恢复后重新核验：188840 于 21:08:55 结束，elapsed
+27:47，`OUT_OF_MEMORY 0:125`；Slurm batch MaxRSS=514450844 KiB，触及约
+490.6 GiB 主存配额。不是 SSH 超时、CUDA 显存错误或算法已收敛。
+
+本作业四卡 2200 参数的 checkpoint/offload HVP 启动数值自检通过；真实 8B 完成
+第一轮 FVP 的前 16/64 个前缀（709.84 秒），各 row_done 的 saved CPU 图计数均
+为零。第 8 个 1724-token 前缀的第一反传保存图已有 166908097568 字节，随后能
+释放。第 17 个前缀长 2801 tokens，已完成 forward，但尚未记录 first_backward_done
+便被 SIGKILL。定位为长前缀的整网导数图峰值问题；日志不支持把它解释为未释放的
+16 份完整图，也不排除 allocator 和训练父进程占用增加总主存。没有完整 FVP、λ、
+age_00 报告或真实 optimizer update，集成仍未通过。
+
+当前修复改变求导实现而不改变 Fisher 目标：独立非 FSDP 模型逐层参数/输入 JVP
+得到 Jv，用全词表 softmax Fisher 乘法，再逐层重算并普通 VJP 得到 J^T F_z Jv。
+仅保存 CPU 上 detached 层输入和单层普通反传图，不保留整网 double-backward 图。
+这不是依赖 FSDP 参数 JVP 支持，也不是只对输入求导；embedding/head/norm 全部
+参与，仍保持全参数、64 prompts、完整前缀、全词表、FP32/FP64 和原收敛门槛。
+anchor 零梯度检查也走逐层 VJP；K 的直接计算、实际累计位移和幂迭代逻辑不变。
+
+候选数值回归在集群现有 PyTorch 2.8 环境、隐藏 CUDA 的 CPU 小模型上执行：
+九项训练集成 unittest 通过（0.682 秒），三项原 HVP unittest 通过（0.005 秒）。
+包括逐层 Fv 对照原双反传每个参数、共享 embedding/head、非零 KL 梯度、加权
+FVP/二次型、权重与 eval 不变。逐参数 atol=1e-6、rtol=1e-5。32-token 微型模型
+保存图 hook 峰值为整网 189024、前向 checkpoint 142208、逐层 VJP 47840 字节，
+结束后计数归零；不是 8B RSS 节省率，不代替真实四卡验证。
+
+本节为工程修复与测试记录，尚未有新的完整 8B probe 通过。正式 188659/188660
+保持取消，不重提正式任务。188840 原始日志已归档，未下载模型权重。
+
 首次集成提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
 shell 语法检查通过；不将 CPU 自检等同于真实四卡训练集成已通过。
@@ -165,3 +196,4 @@ mini-batch=256、四卡可见、warmup=0 和 save_freq=-1。
 
 - [188038 原始失败日志](raw/integration_probe_job188038/fisher-kqb-integration-g4-188038.out)：已归档，raw 不入 Git。
 - [188641 原始失败日志](raw/integration_probe_job188641/fisher-kqb-integration-g4-188641.out)：已归档，raw 不入 Git。
+- [188840 原始失败日志](raw/integration_probe_job188840/fisher-kqb-integration-g4-188840.out)：已归档，raw 不入 Git。
