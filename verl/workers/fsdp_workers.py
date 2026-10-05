@@ -16,11 +16,18 @@ The main entry point to run the PPO algorithm
 """
 
 import datetime
+import gc
 import json
 import logging
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
 import warnings
 from dataclasses import asdict
+from pathlib import Path
 
 import psutil
 import torch
@@ -938,6 +945,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 dynamic_batch_dp_group=dynamic_batch_dp_group,
                 actor_lr_scheduler=self.actor_lr_scheduler,
             )
+            if self.config.actor.get("full_kl_hvp_measurement", False):
+                if (
+                    fsdp_version(self.actor_module_fsdp) != 1 or self.world_size != 4
+                    or not self._is_offload_param or not self._is_offload_optimizer
+                    or self.actor.use_ulysses_sp or self._is_lora or self._qat_enabled
+                    or self.actor_model_config.model_type != "qwen3"
+                ):
+                    raise ValueError("Exact HVP integration requires four-GPU Qwen3 full-parameter sis_offload")
+                self.actor.full_kl_hvp_callback = self._measure_full_kl_hvp
 
         if self._is_rollout:
             self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
@@ -1017,6 +1033,98 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # Free cached GPU memory so colocated vLLM processes can see it via cudaMemGetInfo
         aggressive_empty_cache(force_sync=True)
+
+    def _measure_full_kl_hvp(self, metadata, anchor_update, age):
+        """Pause all training ranks and lend the same four GPUs to exact AD.
+
+        Export only ordinary FSDP state_dicts; the second backward never runs
+        through FSDP. Private snapshots are transient, not checkpoints.
+        """
+        started = time.perf_counter()
+        config = self.config.actor
+        rank = dist.get_rank()
+        self.actor_optimizer.zero_grad(set_to_none=True)
+        with FSDP.state_dict_type(
+            self.actor_module_fsdp, StateDictType.FULL_STATE_DICT,
+            FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
+        ):
+            state = self.actor_module_fsdp.state_dict()
+        message = [None]
+        if rank == 0:
+            try:
+                if age == 0:
+                    scratch = Path(config.full_kl_hvp_scratch)
+                    if not scratch.is_absolute() or not str(scratch).startswith("/tmp/ds-"):
+                        raise ValueError("HVP snapshots must use the job-local /tmp/ds- directory")
+                    scratch.mkdir(parents=True, exist_ok=True)
+                    self._hvp_cycle = Path(tempfile.mkdtemp(prefix=f"anchor-{anchor_update}-", dir=scratch))
+                    self.actor_model_config.to_json_file(self._hvp_cycle / "config.json")
+                snapshot_bytes = sum(value.numel() * value.element_size() for value in state.values())
+                required_bytes = snapshot_bytes * (2 if age == 0 else 1) + (2 << 30)
+                if shutil.disk_usage(self._hvp_cycle).free < required_bytes:
+                    raise RuntimeError("Insufficient job-local space for transient anchor/current weights")
+                snapshot = self._hvp_cycle / ("anchor.pt" if age == 0 else "current.pt")
+                with snapshot.open("xb") as stream:
+                    torch.save(state, stream)
+            except Exception as error:
+                message[0] = {"error": f"Snapshot export failed: {type(error).__name__}: {error}"}
+                if hasattr(self, "_hvp_cycle"):
+                    for name in ("anchor.pt", "current.pt", "anchor_logp.pt", "power.json", "config.json"):
+                        (self._hvp_cycle / name).unlink(missing_ok=True)
+                    self._hvp_cycle.rmdir()
+        del state
+        gc.collect()
+        dist.broadcast_object_list(message, src=0)
+        if message[0] is not None:
+            raise RuntimeError(message[0]["error"])
+        dist.barrier()
+        offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        offload_fsdp_optimizer(self.actor_optimizer)
+        aggressive_empty_cache(force_sync=True)
+        dist.barrier()
+        if rank == 0:
+            try:
+                visible = config.full_kl_hvp_visible_devices
+                if len(visible.split(",")) != self.world_size:
+                    raise ValueError("HVP process must see exactly the Slurm allocation's four GPUs")
+                output_dir = Path(metadata["hvp_output_dir"]) / f"start_{anchor_update:04d}"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                report_path = output_dir / f"age_{age:02d}.json"
+                script = Path(__file__).resolve().parents[2] / "examples/dynamic_staleness/measure_training_fisher.py"
+                environment = os.environ.copy()
+                environment["CUDA_VISIBLE_DEVICES"] = visible
+                repository = str(script.parents[2])
+                environment["PYTHONPATH"] = repository + os.pathsep + environment.get("PYTHONPATH", "")
+                command = [
+                    sys.executable, str(script), "--cycle", str(self._hvp_cycle),
+                    "--context", metadata["hvp_context_path"], "--output", str(report_path),
+                    "--anchor-update", str(anchor_update), "--age", str(age),
+                    "--gpus", str(self.world_size), "--steps", str(config.full_kl_hvp_steps),
+                    "--tolerance", str(config.full_kl_hvp_tolerance), "--seed", str(config.full_kl_seed),
+                ]
+                print(f"Starting exact HVP: anchor={anchor_update} age={age} output={report_path}", flush=True)
+                subprocess.run(command, env=environment, check=True, timeout=config.full_kl_hvp_timeout)
+                with report_path.open() as stream:
+                    report = json.load(stream)
+                message[0] = {"metrics": report["metrics"]}
+            except Exception as error:
+                message[0] = {"error": f"{type(error).__name__}: {error}"}
+            finally:
+                if age > 0:
+                    (self._hvp_cycle / "current.pt").unlink(missing_ok=True)
+                if "error" in message[0] or age == metadata["hvp_reuse_n"]:
+                    for name in ("anchor.pt", "anchor_logp.pt", "power.json", "config.json"):
+                        (self._hvp_cycle / name).unlink(missing_ok=True)
+                    self._hvp_cycle.rmdir()
+        dist.broadcast_object_list(message, src=0)
+        load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        load_fsdp_optimizer(self.actor_optimizer, device_id=get_device_id())
+        dist.barrier()
+        if "error" in message[0]:
+            raise RuntimeError(f"Exact Fisher measurement failed: {message[0]['error']}")
+        metrics = message[0]["metrics"]
+        metrics["hvp_measurement_seconds"] = time.perf_counter() - started
+        return metrics
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")

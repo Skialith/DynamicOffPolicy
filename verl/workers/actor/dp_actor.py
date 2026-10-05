@@ -86,6 +86,9 @@ class DataParallelPPOActor(BasePPOActor):
         self.full_kl_measurement = self.config.get("full_kl_measurement", False)
         self.full_kl_geometry_measurement = self.config.get("full_kl_geometry_measurement", False)
         self.full_kl_jvp_measurement = self.config.get("full_kl_jvp_measurement", False)
+        self.full_kl_hvp_measurement = self.config.get("full_kl_hvp_measurement", False)
+        if self.full_kl_hvp_measurement and (not self.full_kl_measurement or self.full_kl_jvp_measurement):
+            raise ValueError("Exact HVP requires full-KL and cannot run alongside parameter JVP")
         if self.full_kl_geometry_measurement and not self.full_kl_measurement:
             raise ValueError("Full-KL geometry measurement requires full-KL measurement")
         if self.full_kl_jvp_measurement and not self.full_kl_geometry_measurement:
@@ -765,6 +768,9 @@ class DataParallelPPOActor(BasePPOActor):
                     raise RuntimeError(f"Repeated full-KL forward numerical floor too large: {kl_self}")
             kl_anchor_seconds = time.perf_counter() - kl_start_time
 
+        if self.full_kl_hvp_measurement:
+            self.full_kl_hvp_callback(data.meta_info, optimizer_step_start, 0)
+
         select_keys = [
             "responses",
             "response_mask",
@@ -1003,7 +1009,17 @@ class DataParallelPPOActor(BasePPOActor):
                 lrs_used = [float(group["lr"]) for group in self.actor_optimizer.param_groups]
                 lr_used = lrs_used[0]
                 self.last_lr_used = lr_used
+                if self.full_kl_hvp_measurement:
+                    parameter_before = [p.detach().to(device="cpu", copy=True) for p in self.actor_module.parameters()]
                 grad_norm = self._optimizer_step()
+                if self.full_kl_hvp_measurement:
+                    from verl.trainer.ppo.full_vocab_kl import actual_update_squared_norm
+
+                    update_squared = actual_update_squared_norm(self.actor_module.parameters(), parameter_before)
+                    del parameter_before
+                    update_squared = update_squared.to(get_device_id())
+                    torch.distributed.all_reduce(update_squared, group=self.dynamic_batch_dp_group)
+                    actual_update_norm = update_squared.sqrt().item()
                 if self.full_kl_jvp_measurement:
                     jvp_start_time = time.perf_counter()
                     update_norm, parameter_updates = self._measure_adamw_parameter_updates(lrs_used)
@@ -1035,6 +1051,10 @@ class DataParallelPPOActor(BasePPOActor):
                         kl_metrics["update_norm"] = update_norm.item()
                     if jvp_seconds is not None:
                         kl_metrics["jvp_seconds"] = jvp_seconds
+                    if self.full_kl_hvp_measurement:
+                        hvp_metrics = self.full_kl_hvp_callback(data.meta_info, optimizer_step_start, update_age + 1)
+                        kl_metrics.update(hvp_metrics)
+                        kl_metrics["hvp_update_norm"] = actual_update_norm
                     metrics.update({f"full_kl/age_{update_age:02d}/{k}": v for k, v in kl_metrics.items()})
                     kl_previous = current
                 mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}

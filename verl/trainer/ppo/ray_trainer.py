@@ -347,6 +347,10 @@ class RayPPOTrainer:
         })
         with open(os.path.join(context_dir, f"start_{self.optimizer_steps:04d}.pt"), "xb") as handle:
             torch.save(payload, handle)
+        if actor.get("full_kl_hvp_measurement", False):
+            batch.meta_info["hvp_context_path"] = os.path.join(context_dir, f"start_{self.optimizer_steps:04d}.pt")
+            batch.meta_info["hvp_output_dir"] = os.path.join(output_dir, "hvp_diagnostics")
+            batch.meta_info["hvp_reuse_n"] = self._optimizer_updates_per_rollout()
 
     def _append_full_kl(self, actor_metrics, update_count):
         output_dir = os.path.abspath(self.config.trainer.default_local_dir)
@@ -383,6 +387,8 @@ class RayPPOTrainer:
             "frozen_fisher_jvp_cosine", "frozen_fisher_jvp_residual_increment",
             "frozen_fisher_jvp_reconstruction_error", "jvp_anchor_functional_kl",
             "jvp_seconds",
+            "hvp_cumulative_kl", "hvp_fisher_quadratic", "hvp_spectral_bound", "hvp_lambda_max",
+            "hvp_displacement_norm", "hvp_update_norm", "hvp_residual", "hvp_measurement_seconds",
         )
         for record in records:
             logger.log(

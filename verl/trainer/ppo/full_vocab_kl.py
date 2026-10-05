@@ -193,6 +193,27 @@ def adamw_update_squared_norm(optimizer, lrs_used, chunk_size=16_777_216):
     return squared_norm
 
 
+def actual_update_squared_norm(parameters, before, chunk_size=1 << 20):
+    """Norm of stored-parameter differences, not an AdamW reconstruction.
+
+    Before-values are CPU copies taken immediately before optimizer.step().
+    Chunked FP64 subtraction and reduction avoid a second full GPU model.
+    """
+    parameters = list(parameters)
+    if len(parameters) != len(before):
+        raise ValueError("Parameter snapshots must align")
+    total = torch.zeros((), dtype=torch.float64)
+    for parameter, previous in zip(parameters, before):
+        if previous.shape != parameter.shape:
+            raise ValueError("Parameter snapshot shape changed")
+        current = parameter.detach().reshape(-1)
+        previous = previous.reshape(-1)
+        for start in range(0, current.numel(), chunk_size):
+            delta = current[start:start + chunk_size].cpu().double() - previous[start:start + chunk_size].double()
+            total += delta.square().sum()
+    return total
+
+
 def adamw_parameter_updates(optimizer, lrs_used, chunk_size=16_777_216):
     """Reconstruct each local AdamW parameter displacement after a completed step.
 

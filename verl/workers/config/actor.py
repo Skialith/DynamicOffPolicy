@@ -167,6 +167,12 @@ class ActorConfig(BaseConfig):
     full_kl_measurement: bool = False
     full_kl_geometry_measurement: bool = False
     full_kl_jvp_measurement: bool = False
+    full_kl_hvp_measurement: bool = False
+    full_kl_hvp_steps: int = 200
+    full_kl_hvp_tolerance: float = 1e-3
+    full_kl_hvp_visible_devices: str = ""
+    full_kl_hvp_scratch: str = ""
+    full_kl_hvp_timeout: int = 21600
     full_kl_num_prompts: int = 64
     full_kl_positions_per_response: int = 8
     full_kl_seed: int = 20260903

@@ -100,6 +100,15 @@ DRY_RUN=${DRY_RUN:-0}
 FULL_KL_EXPERIMENT=${FULL_KL_EXPERIMENT:-0}
 FULL_KL_GEOMETRY=${FULL_KL_GEOMETRY:-0}
 FULL_KL_JVP=${FULL_KL_JVP:-0}
+FULL_KL_HVP=${FULL_KL_HVP:-0}
+if [[ "${FULL_KL_HVP}" != 0 && "${FULL_KL_HVP}" != 1 ]]; then
+    echo "FULL_KL_HVP must be 0 or 1" >&2
+    exit 2
+fi
+if [[ "${FULL_KL_HVP}" == 1 ]] && [[ "${FULL_KL_EXPERIMENT}" != 1 || "${FULL_KL_JVP}" != 0 || "${N_GPUS}" != 4 || "${RUNTIME_PROFILE}" != sis_offload ]]; then
+    echo "Exact HVP requires full-KL, no JVP, four GPUs and sis_offload" >&2
+    exit 2
+fi
 if [[ "${FULL_KL_GEOMETRY}" != 0 && "${FULL_KL_GEOMETRY}" != 1 ]]; then
     echo "FULL_KL_GEOMETRY must be 0 or 1, got: ${FULL_KL_GEOMETRY}" >&2
     exit 2
@@ -415,7 +424,26 @@ if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
     )
 fi
 
+if [[ "${FULL_KL_HVP}" == 1 ]]; then
+    overrides+=(
+        "actor_rollout_ref.actor.full_kl_hvp_measurement=true"
+        "actor_rollout_ref.actor.full_kl_hvp_steps=${HVP_POWER_STEPS:-200}"
+        "actor_rollout_ref.actor.full_kl_hvp_tolerance=${HVP_POWER_TOLERANCE:-0.001}"
+        "actor_rollout_ref.actor.full_kl_hvp_visible_devices='${CUDA_VISIBLE_DEVICES}'"
+        "actor_rollout_ref.actor.full_kl_hvp_scratch=${TMPDIR:?HVP requires Slurm job-local TMPDIR}/fisher-hvp"
+        "actor_rollout_ref.actor.full_kl_hvp_timeout=${HVP_MEASUREMENT_TIMEOUT:-21600}"
+        "++actor_rollout_ref.nccl_timeout=24000"
+    )
+fi
+
 if [[ "${DRY_RUN}" == 1 ]]; then
     exec "${PYTHON_BIN}" -m verl.trainer.main_ppo --cfg job "${overrides[@]}" "$@"
+fi
+if [[ "${FULL_KL_HVP}" == 1 ]]; then
+    "${PYTHON_BIN}" -m verl.trainer.main_ppo "${overrides[@]}" "$@"
+    exec "${PYTHON_BIN}" "${SCRIPT_DIR}/verify_training_fisher.py" \
+        --run-dir "${OUTPUT_DIR}" --updates "${REMAINING_UPDATES}" --reuse-n "${REUSE_N}" \
+        --prompts "${KL_NUM_PROMPTS}" --tolerance "${HVP_POWER_TOLERANCE:-0.001}" \
+        --scratch "${TMPDIR}/fisher-hvp"
 fi
 exec "${PYTHON_BIN}" -m verl.trainer.main_ppo "${overrides[@]}" "$@"
