@@ -39,7 +39,7 @@ SLURM_DEPENDENCY=afterok:<probe-job-id> bash experiments/20261005_fisher_kqb_n4_
 | 正式 job | 188659，`fisher-kqb-n4-g4` |
 | 提交时间 | 2026-10-05 18:20:16，Asia/Shanghai |
 | 依赖 | `afterok:188641`；失败的 188038 不作为依赖 |
-| 状态核验 | 2026-10-05 18:22:05：`PENDING (Dependency)`，尚未开始、尚未分配实际节点 |
+| 状态核验 | 2026-10-05 18:27:40：`PENDING (Dependency)`，尚未开始、尚未分配实际节点 |
 | 请求资源 | `gpu_a800`，4 GPU；实际 CPU/主存/开始结束时间待分配后核验 |
 | 日志 | 部署下 `logs/slurm/fisher-kqb-n4-g4-188659.out` |
 
