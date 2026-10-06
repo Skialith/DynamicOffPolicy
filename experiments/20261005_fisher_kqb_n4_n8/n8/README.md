@@ -25,8 +25,9 @@
 ## 前置集成 probe
 
 同一 8B、四卡、完整 1024/3072 长度上限、真实 rollout 与完整 64-prompt q，执行一轮
-N=8。仅训练 mini-batch 缩为 8 prompts（rollout batch=64），8 次 update；关闭能力
-评测与权重保存。它验证 export/offload/子进程四卡/HVP/reload 与八个 age 的对接，
+N=8。仅训练 mini-batch 缩为 8 prompts（rollout batch=64），8 次 update；禁用 MATH500
+benchmark 与权重保存。190665 实际仍触发末轮训练集小验证，见终态记录。
+它验证 export/offload/子进程四卡/HVP/reload 与八个 age 的对接，
 不是能力、训练吞吐或正式曲率结论。逐步 K/Q/B 缺失、λ 未收敛、首步分片 norm 与
 完整差值不一致或 scratch 残留都会使 probe 失败；正式两组设置 `afterok` 依赖。
 
@@ -178,7 +179,7 @@ FVP/二次型、权重与 eval 不变。逐参数 atol=1e-6、rtol=1e-5。32-tok
 保存图 hook 峰值为整网 189024、前向 checkpoint 142208、逐层 VJP 47840 字节，
 结束后计数归零；不是 8B RSS 节省率，不代替真实四卡验证。
 
-本节为工程修复与测试记录，尚未有新的完整 8B probe 通过。正式 188659/188660
+截至 2026-10-05，本节为工程修复与测试记录，尚未有新的完整 8B probe 通过。正式 188659/188660
 保持取消，不重提正式任务。188840 原始日志已归档，未下载模型权重。
 
 2026-10-05 23:08（Asia/Shanghai），候选修复提交为 `3f291ca`。三个核心代码/测试
@@ -201,24 +202,81 @@ OOM，正式 188659/188660 仍是取消。随后同步此前未成功同步的�
 | --- | --- |
 | job / 源码 | 190665，`fisher-kqb-integration-g4`；逐层 Fisher 修复 `3f291ca` |
 | 提交 / 开始 | 2026-10-06 10:56:29 / 10:56:51，Asia/Shanghai |
-| 核验状态 | 2026-10-06 10:57:00：`RUNNING`；结束时间未知，尚未通过集成验收 |
+| 核验状态 | 2026-10-06 21:13:21：`COMPLETED 0:0`；现有 K/Q/B 集成验收通过，收尾异常见下文 |
+| 结束 / elapsed | 2026-10-06 21:09:04 / 10:12:13，Asia/Shanghai |
 | 依赖 / 时限 | 无依赖；24 小时，调度时限不是完成时间预测 |
 | 实际资源 | `d1n41a28g03`；4×A800-SXM4-80GB、32 CPU、502400 MiB 主存 |
 | 日志 | 部署下 `logs/slurm/fisher-kqb-integration-g4-190665.out` |
 
 启动日志确认 N=8、mini-batch=8、rollout 64 prompt groups、8 responses/prompt，
-计划 8 次真实 optimizer update、一轮 rollout；能力评测关闭，`save_freq=-1`。
+计划 8 次真实 optimizer update、一轮 rollout；MATH500 benchmark 关闭，`save_freq=-1`。
 沿用 64 prompts×最多 8 位置、完整 1024/3072 长度上限、全参数/全词表、FP32/FP64、
-残差 1e-3/cap=200 和测量 6 小时限额。当前仍完整测量 K/Q/B，未提前取消 Q；λ 和
+残差 1e-3/cap=200 和测量 6 小时限额。本次完整测量 K/Q/B，未提前取消 Q；λ 和
 Q 共用逐层 FVP，只有 λ 通过而 Q 单独失败时，才考虑用户允许的 KL/λ/norm/B 降级。
 不新增持久化基座副本、不保存训练后 HF 权重或 Adam；anchor/current/cache 仍仅放
 作业私有 `/tmp/ds-190665/tmp/fisher-hvp/`，按原异常/轮末路径清理。
 
 确定输出实例：`20261006-105651_job190665_g4_tp2_seed1_hvp_integration_probe`，
 位于部署下 `n8/raw/integration_probe/`，实际输出为其下
-`fisher_kqb_probe_n8_u0008/`。启动后仍须检查四卡数值对照、完整 64-prefix FVP、
+`fisher_kqb_probe_n8_u0008/`。启动时验收要求为四卡数值对照、完整 64-prefix FVP、
 anchor λ 残差收敛、八个 age 的 K/Q/B、首步 norm 对照与 scratch 清理；运行中的
 `ExitCode=0:0` 不表示完成。正式两组保持取消，本次没有设置后续自动启动依赖。
+
+#### 190665 终态与工程验收
+
+2026-10-06 21:13:21 核验 Slurm 终态、唯一日志和标量产物，随后用现有
+`verify_training_fisher.py` 的 `validate` 函数只读复核归档数据。远端
+`hvp_validation.json` 为 `passed=true`，包含 8 updates、一轮 N=8、9 份 age 报告；
+本地复核坐标、完整性、精度、B 公式和首步 norm 对照通过。本地没有计算节点 scratch，
+不把本地函数的清理字段当作远端清理证据。
+
+| 验收项 | 原始证据 |
+| --- | --- |
+| 四卡数值自检 | 2200 参数微型 Qwen3：逐层 FVP 对照整网 double backward 通过；atol=1e-6、rtol=1e-5 |
+| 完整 FVP | 12 次幂迭代 + 8 次位移 FVP 均完成 64/64 前缀；512 位置，最长前缀 3140 tokens |
+| anchor λ | 2803.3018877023183；12 次迭代，残差 5.478276571843372e-4 < 1e-3，`converged=true` |
+| anchor 一阶检查 | 64 个前缀全部检查；最大行梯度 norm=1.1455512153857286e-14 |
+| 更新与 age | `kl_updates.jsonl` 恰有 8 条真实 update，anchor=0、age_after=1..8；age_00..08 报告齐全，K/Q/B 有限且与训练记录一致 |
+| 参数 / 精度 | 8190735360 全参数、全词表；参数及导数 FP32，KL/log-softmax/F_z FP64；点积 FP32 元素乘法、FP64 累加，TF32 关闭 |
+| 位移 / 公式 | Δ 来自 current-anchor 的实际全参数差值；Q=0.5ΔᵀFΔ（代码以归一化方向求 FVP 再乘 norm²），B_hat=0.5λ_hat‖Δ‖² |
+| 首步 norm 对照 | 分片 update norm=0.0790590785657796，完整 Δ norm=0.0790590784850943；相对差约 1.02e-9，满足 1e-5 门槛 |
+| 快照与 checkpoint | 计算节点结束验收以 `--scratch /tmp/ds-190665/tmp/fisher-hvp` 检查，`transient_snapshots_removed=true`、`no_persistent_checkpoint=true`；远端输出无 global_step_*、模型权重、Adam 或 anchor/current 文件 |
+
+本批原来失败的 2801-token 长前缀以及最长 3140-token 前缀均通过。逐层导数路线解决了
+这批 q 上的整网二阶图 OOM，λ/Q 共用的完整 FVP 和 actor 导出/offload/恢复/八步测量链路
+已跑通，不需要暂去 Q。它不证明所有 4096-token 前缀或正式 mini-batch=256 的整体资源
+都已验证，也不是 8B 上对显式 Fisher 最大特征值的独立误差对照。
+
+资源与耗时：Slurm batch MaxRSS=444338260 KiB（约 423.75 GiB），分配主存为
+490.625 GiB；不能把测量子进程日志中最大 VmHWM 70.48 GiB 当作整个 batch 的主存。
+单层 saved CPU 图 hook 峰值约 3.83 GiB，所有已记录 row_done 的图存活计数为零；
+这也不等于进程 RSS 归零。测量子进程各卡 peak allocated 约
+41.70/31.46/31.46/43.10 GiB，最大 peak reserved 约 43.70 GiB，不代表训练/vLLM 峰值。
+完整 FVP 用时约 1580–1679 秒；age_00 测量报告用时 21396.33 秒（5:56:36），
+已接近单次测量 6 小时限额。age=1..8 每次报告约 1715–1769 秒（28.6–29.5 分钟），
+不含父进程导出/恢复开销。正式实验前仍需核对资源和时间预算，不能仅凭本次成功忽略限额。
+
+收尾与评测偏差：八步测量后，日志记录完成训练进度、最终小验证和最终指标；随后出现
+vLLM engine core died / Ray DataLoader worker Killed traceback，再输出验收通过。
+`run_staleness.sh` 的主训练命令返回成功后才执行 gate，Slurm 为 `COMPLETED 0:0`，
+日志没有 CUDA OOM 或 batch oom_kill 记录。异常没有阻止八步产物与清理验收，但仅凭
+日志不能确定 kill 来源，不能宣称退出过程无异常。`benchmark_eval=0` 仍沿用了
+FULL_KL 的 `test_freq=6`，trainer 的末轮分支触发 16 条训练集验证；不是 MATH500，
+不解释其分数为正式能力结果。本次未修改代码或补交任务。
+
+K 的数值口径也需分开：age=8 的 FP32 测量为 K=0.013921867624118777、
+Q=0.04950024539114931、B_hat=104.73657285932848；训练侧 BF16 actor 的
+`cumulative_kl` 为 0.001303203858338557。后续 K/Q/B 比较应使用同一测量模型的
+`hvp_cumulative_kl`，不能混用两个 K。这一差异的原因尚未拆分，内部验收通过不等于
+已确定模型精度差异的误差大小。B_hat 不是有限位移真实 KL 的严格上界；幂迭代残差
+通过也不是 λ_max 上界证书。本 probe 不产生正式拟合或长期安全结论。
+
+原件保留在上述唯一输出目录及 Slurm 日志路径。2026-10-06 仅将日志、
+`kl_updates.jsonl`、`hvp_validation.json`、`run_manifest.json`、`eval_metrics.jsonl`
+和九份 age 标量报告不覆盖地归档至 `raw/integration_probe_job190665/`（raw 不入 Git）；
+没有复制前缀张量、anchor/current/cache、大向量、模型权重或 Adam。
+`run_manifest.json` 的 endpoint_model 只是预设路径，实际没有该 checkpoint。
+正式 188659/188660 保持取消，不自动重提；本次结束验收完成后停止定时监控。
 
 首次集成提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
@@ -236,3 +294,4 @@ mini-batch=256、四卡可见、warmup=0 和 save_freq=-1。
 - [188038 原始失败日志](raw/integration_probe_job188038/fisher-kqb-integration-g4-188038.out)：已归档，raw 不入 Git。
 - [188641 原始失败日志](raw/integration_probe_job188641/fisher-kqb-integration-g4-188641.out)：已归档，raw 不入 Git。
 - [188840 原始失败日志](raw/integration_probe_job188840/fisher-kqb-integration-g4-188840.out)：已归档，raw 不入 Git。
+- [190665 原始日志](raw/integration_probe_job190665/fisher-kqb-integration-g4-190665.out)、[逐 update 标量](raw/integration_probe_job190665/kl_updates.jsonl)、[结束验收](raw/integration_probe_job190665/hvp_validation.json)：已归档，raw 不入 Git。
