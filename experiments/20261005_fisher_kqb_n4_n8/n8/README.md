@@ -189,6 +189,37 @@ FVP/二次型、权重与 eval 不变。逐参数 atol=1e-6、rtol=1e-5。32-tok
 未成功，保留本地已提交记录。尚未执行新的提交命令、没有新 job ID；连接恢复后须
 先重新核查部署和持久空间，再只提交一个 probe，不重排正式任务。
 
+### 逐层 Fisher 四卡 probe：190665
+
+2026-10-06 10:55:10（Asia/Shanghai），连接恢复，远端三个核心代码/测试文件的
+SHA-256 与本地 `3f291ca` 完全一致，账户用量 38735335449 字节、限额
+268435456000 字节（约 38.74/268.44 GB）。队列没有活动任务；188840 仍为主存
+OOM，正式 188659/188660 仍是取消。随后同步此前未成功同步的文档和现有提交入口，
+只执行一次 `SLURM_DEPENDENCY= ... submit_experiment.sh probe`，没有重排正式任务。
+
+| 项目 | 记录 |
+| --- | --- |
+| job / 源码 | 190665，`fisher-kqb-integration-g4`；逐层 Fisher 修复 `3f291ca` |
+| 提交 / 开始 | 2026-10-06 10:56:29 / 10:56:51，Asia/Shanghai |
+| 核验状态 | 2026-10-06 10:57:00：`RUNNING`；结束时间未知，尚未通过集成验收 |
+| 依赖 / 时限 | 无依赖；24 小时，调度时限不是完成时间预测 |
+| 实际资源 | `d1n41a28g03`；4×A800-SXM4-80GB、32 CPU、502400 MiB 主存 |
+| 日志 | 部署下 `logs/slurm/fisher-kqb-integration-g4-190665.out` |
+
+启动日志确认 N=8、mini-batch=8、rollout 64 prompt groups、8 responses/prompt，
+计划 8 次真实 optimizer update、一轮 rollout；能力评测关闭，`save_freq=-1`。
+沿用 64 prompts×最多 8 位置、完整 1024/3072 长度上限、全参数/全词表、FP32/FP64、
+残差 1e-3/cap=200 和测量 6 小时限额。当前仍完整测量 K/Q/B，未提前取消 Q；λ 和
+Q 共用逐层 FVP，只有 λ 通过而 Q 单独失败时，才考虑用户允许的 KL/λ/norm/B 降级。
+不新增持久化基座副本、不保存训练后 HF 权重或 Adam；anchor/current/cache 仍仅放
+作业私有 `/tmp/ds-190665/tmp/fisher-hvp/`，按原异常/轮末路径清理。
+
+确定输出实例：`20261006-105651_job190665_g4_tp2_seed1_hvp_integration_probe`，
+位于部署下 `n8/raw/integration_probe/`，实际输出为其下
+`fisher_kqb_probe_n8_u0008/`。启动后仍须检查四卡数值对照、完整 64-prefix FVP、
+anchor λ 残差收敛、八个 age 的 K/Q/B、首步 norm 对照与 scratch 清理；运行中的
+`ExitCode=0:0` 不表示完成。正式两组保持取消，本次没有设置后续自动启动依赖。
+
 首次集成提交前 CPU 自检：五项通过，包括 FP32 权重往返、全参数微型 Qwen3 二阶反传、
 加权 HVP 对照显式 Fisher、因果前缀选择、实际参数差值 norm 和失败门槛。静态编译与
 shell 语法检查通过；不将 CPU 自检等同于真实四卡训练集成已通过。
