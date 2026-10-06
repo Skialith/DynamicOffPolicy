@@ -432,7 +432,7 @@ if [[ "${FULL_KL_HVP}" == 1 ]]; then
         "actor_rollout_ref.actor.full_kl_hvp_visible_devices='${CUDA_VISIBLE_DEVICES}'"
         "actor_rollout_ref.actor.full_kl_hvp_scratch=${TMPDIR:?HVP requires Slurm job-local TMPDIR}/fisher-hvp"
         "actor_rollout_ref.actor.full_kl_hvp_timeout=${HVP_MEASUREMENT_TIMEOUT:-21600}"
-        "++actor_rollout_ref.nccl_timeout=24000"
+        "++actor_rollout_ref.nccl_timeout=${HVP_NCCL_TIMEOUT:-24000}"
     )
 fi
 
