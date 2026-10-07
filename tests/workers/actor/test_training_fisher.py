@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import torch
@@ -11,7 +12,7 @@ from transformers import Qwen3Config, Qwen3ForCausalLM
 
 from examples.dynamic_staleness import measure_training_fisher as measure
 from examples.dynamic_staleness.verify_training_fisher import validate
-from verl.trainer.ppo.full_vocab_kl import actual_update_squared_norm
+from verl.trainer.ppo.full_vocab_kl import actual_update_squared_norm, score_context_row
 
 
 class TrainingFisherTest(unittest.TestCase):
@@ -32,7 +33,10 @@ class TrainingFisherTest(unittest.TestCase):
         with torch.no_grad():
             expected = model(input_ids=torch.tensor([[3, 4, 5, 6, 2]]), use_cache=False).logits[0, [1, 3]]
             actual = measure.selected_logits(model, row)
+            legacy = score_context_row(model, {key: value[0] for key, value in payload.items()}, "cpu")
         torch.testing.assert_close(actual, expected, atol=1e-7, rtol=1e-6)
+        torch.testing.assert_close(actual.log_softmax(-1), legacy, atol=1e-7, rtol=1e-6)
+        torch.testing.assert_close(row["weights"], payload["kl_weights"][0, :2], atol=0, rtol=0)
         payload["kl_weights"] *= 0.9
         with self.assertRaisesRegex(ValueError, "sum to one"):
             measure.context_rows(payload)
@@ -69,6 +73,48 @@ class TrainingFisherTest(unittest.TestCase):
             loss = measure.weighted_kl(copy(input_ids=ids, use_cache=False).logits[0], reference[0], torch.full((3,), 1/3, dtype=torch.float64))
             result = measure.exact_product(loss, list(copy.parameters()), direction)
             self.assertTrue(all(torch.isfinite(value).all() for value in result))
+
+    def test_kb_only_skips_displacement_fvp(self):
+        torch.manual_seed(29)
+        model = self.tiny_model().eval()
+        anchor = {name: value.clone() for name, value in model.state_dict().items()}
+        current = {name: value + 0.002 * torch.randn_like(value) for name, value in anchor.items()}
+        payload = {"anchor_update": 0,
+                   "input_ids": torch.tensor([[0, 3, 4, 5, 6, 2]]),
+                   "attention_mask": torch.tensor([[0, 1, 1, 1, 1, 1]]),
+                   "position_ids": torch.tensor([[0, 0, 1, 2, 3, 4]]),
+                   "responses": torch.tensor([[5, 6, 2]]),
+                   "kl_positions": torch.tensor([[0, 2, -1]]),
+                   "kl_weights": torch.tensor([[0.5, 0.5, 0.0]], dtype=torch.float64)}
+        row, = measure.context_rows(payload)
+        with torch.no_grad():
+            logp = measure.selected_logits(model, row).double().log_softmax(-1)
+        with tempfile.TemporaryDirectory() as directory:
+            cycle = Path(directory)
+            model.config.to_json_file(cycle / "config.json")
+            for name, value in (("anchor", anchor), ("current", current), ("anchor_logp", [logp]),
+                                ("contexts", payload)):
+                torch.save(value, cycle / f"{name}.pt")
+            power = {"lambda_estimate": 3.0, "residual": 1e-4, "iterations": 12, "converged": True}
+            (cycle / "power.json").write_text(json.dumps(power))
+            args = SimpleNamespace(cycle=cycle, context=cycle / "contexts.pt", output=cycle / "report.json",
+                                   anchor_update=0, age=1, gpus=4, skip_quadratic=True)
+            with patch.object(torch.cuda, "device_count", return_value=4), \
+                 patch.object(measure, "place_layers"), patch.object(measure, "memory", return_value={}), \
+                 patch.object(measure, "make_layerwise_product", side_effect=AssertionError("Unexpected Q FVP")):
+                measure.run(args)
+            report = json.loads(args.output.read_text())
+        self.assertFalse(report["quadratic_measured"])
+        self.assertNotIn("hvp_fisher_quadratic", report["metrics"])
+        model.load_state_dict(current)
+        with torch.no_grad():
+            # Include the full response suffix, as in the old actor KL scorer.
+            logits = model(input_ids=torch.tensor([[3, 4, 5, 6, 2]]), use_cache=False).logits[0, [1, 3]]
+            expected = measure.weighted_kl(logits, logp, row["weights"]).item()
+        self.assertAlmostEqual(report["metrics"]["hvp_cumulative_kl"], expected, places=10)
+        norm_squared = sum((current[name].double() - value.double()).square().sum().item()
+                           for name, value in anchor.items())
+        self.assertAlmostEqual(report["metrics"]["hvp_spectral_bound"], 1.5 * norm_squared, places=7)
 
     def test_weighted_products_and_quadratic_match_dense_fisher(self):
         model = torch.nn.Module()
@@ -262,6 +308,23 @@ class TrainingFisherTest(unittest.TestCase):
             initial_path = root / "hvp_diagnostics/start_0000/age_00.json"
             initial_path.write_text(json.dumps(initial))
             self.assertTrue(validate(root, 1, 1, 64, 1e-3)["passed"])
+            kb_metrics = {name: value for name, value in metrics.items() if name != "hvp_fisher_quadratic"}
+            kb_record = dict(record)
+            del kb_record["hvp_fisher_quadratic"]
+            kb_report = dict(report, metrics=kb_metrics, quadratic_measured=False)
+            (root / "kl_updates.jsonl").write_text(json.dumps(kb_record) + "\n")
+            (root / "hvp_diagnostics/start_0000/age_01.json").write_text(json.dumps(kb_report))
+            self.assertTrue(validate(root, 1, 1, 64, 1e-3, compute_quadratic=False)["passed"])
+            with self.assertRaisesRegex(RuntimeError, "Missing"):
+                validate(root, 1, 1, 64, 1e-3)
+            kb_record["hvp_spectral_bound"] *= 2
+            kb_report["metrics"]["hvp_spectral_bound"] *= 2
+            (root / "kl_updates.jsonl").write_text(json.dumps(kb_record) + "\n")
+            (root / "hvp_diagnostics/start_0000/age_01.json").write_text(json.dumps(kb_report))
+            with self.assertRaisesRegex(RuntimeError, "Incorrect spectral bound"):
+                validate(root, 1, 1, 64, 1e-3, compute_quadratic=False)
+            (root / "kl_updates.jsonl").write_text(json.dumps(record) + "\n")
+            (root / "hvp_diagnostics/start_0000/age_01.json").write_text(json.dumps(report))
             initial["power"]["converged"] = False
             initial_path.write_text(json.dumps(initial))
             with self.assertRaisesRegex(RuntimeError, "did not converge"):

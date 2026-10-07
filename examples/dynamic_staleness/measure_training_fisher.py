@@ -327,8 +327,9 @@ def run(args):
         if not power["converged"]:
             write_json(args.output, {"anchor_update": args.anchor_update, "age_after": 0, "power": power})
             raise RuntimeError("Iteration limit reached without residual convergence")
-        values = {"hvp_cumulative_kl": 0.0, "hvp_fisher_quadratic": 0.0,
-                  "hvp_spectral_bound": 0.0, "hvp_displacement_norm": 0.0}
+        values = {"hvp_cumulative_kl": 0.0, "hvp_spectral_bound": 0.0, "hvp_displacement_norm": 0.0}
+        if not args.skip_quadratic:
+            values["hvp_fisher_quadratic"] = 0.0
     else:
         anchors = torch.load(cache, map_location="cpu", weights_only=True)
         with (args.cycle / "power.json").open() as stream:
@@ -340,27 +341,30 @@ def run(args):
         norm = vector_dot(direction, direction).sqrt()
         if not torch.isfinite(norm):
             raise RuntimeError("Invalid cumulative displacement")
-        if norm.item() == 0:
-            quadratic = 0.0
-        else:
-            normalize_in_place(direction, norm)
-            result = make_layerwise_product(model, rows, anchors)(direction)
-            quadratic = 0.5 * norm.item() ** 2 * vector_dot(direction, result).item()
-            del result
+        if not args.skip_quadratic:
+            if norm.item() == 0:
+                quadratic = 0.0
+            else:
+                normalize_in_place(direction, norm)
+                result = make_layerwise_product(model, rows, anchors)(direction)
+                quadratic = 0.5 * norm.item() ** 2 * vector_dot(direction, result).item()
+                del result
         del direction
         # Evaluate K using the same FP32 measurement model/contexts, not the BF16 actor scores.
         model.load_state_dict(current, strict=True)
         with torch.no_grad():
             cumulative_kl = sum(weighted_kl(selected_logits(model, row), anchor, row["weights"]).item()
                                 for row, anchor in zip(rows, anchors))
-        values = {"hvp_cumulative_kl": cumulative_kl, "hvp_fisher_quadratic": quadratic,
+        values = {"hvp_cumulative_kl": cumulative_kl,
                   "hvp_spectral_bound": 0.5 * power["lambda_estimate"] * norm.item() ** 2,
                   "hvp_displacement_norm": norm.item()}
+        if not args.skip_quadratic:
+            values["hvp_fisher_quadratic"] = quadratic
     values.update({"hvp_lambda_max": power["lambda_estimate"], "hvp_residual": power["residual"],
                    "hvp_iterations": power["iterations"], "hvp_converged": 1.0})
     if not all(math.isfinite(value) for value in values.values()):
         raise RuntimeError("Non-finite K/Q/B")
-    if values["hvp_cumulative_kl"] < -1e-10 or values["hvp_fisher_quadratic"] < -1e-8:
+    if values["hvp_cumulative_kl"] < -1e-10 or values.get("hvp_fisher_quadratic", 0.0) < -1e-8:
         raise RuntimeError("Negative KL or Fisher energy beyond numerical tolerance")
     report = {"anchor_update": args.anchor_update, "age_after": args.age,
               "optimizer_step": args.anchor_update + args.age, "context_path": str(args.context),
@@ -368,6 +372,7 @@ def run(args):
               "fisher_backend": "layerwise_jvp_fisher_vjp",
               "saved_tensors": "detached_layer_inputs_cpu_single_layer_vjp_activations_cpu",
               "whole_model_second_order_graph": False,
+              "quadratic_measured": not args.skip_quadratic,
               "kl_dtype": "float64", "aggregation": "prompt_equal_then_position_equal",
               "vocabulary": "full", "prompts": len(rows), "positions": sum(len(r["indices"]) for r in rows),
               "maximum_prefix_length": max(r["input_ids"].shape[-1] for r in rows),
@@ -391,6 +396,7 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--tolerance", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=20261005)
+    parser.add_argument("--skip-quadratic", action="store_true", help="Measure K/B without a displacement FVP for Q")
     arguments = parser.parse_args()
     if arguments.steps < 1 or arguments.tolerance <= 0 or arguments.age < 0:
         parser.error("Invalid measurement budget, tolerance or age")

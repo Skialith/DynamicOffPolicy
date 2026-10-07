@@ -84,6 +84,7 @@ class DataParallelPPOActor(BasePPOActor):
             actor_optimizer is not None and self.config.optim.get("step_unit", "rollout") == "optimizer_update"
         )
         self.full_kl_measurement = self.config.get("full_kl_measurement", False)
+        self.full_kl_actor_measurement = self.config.get("full_kl_actor_measurement", True)
         self.full_kl_geometry_measurement = self.config.get("full_kl_geometry_measurement", False)
         self.full_kl_jvp_measurement = self.config.get("full_kl_jvp_measurement", False)
         self.full_kl_hvp_measurement = self.config.get("full_kl_hvp_measurement", False)
@@ -91,6 +92,8 @@ class DataParallelPPOActor(BasePPOActor):
             raise ValueError("Exact HVP requires full-KL and cannot run alongside parameter JVP")
         if self.full_kl_geometry_measurement and not self.full_kl_measurement:
             raise ValueError("Full-KL geometry measurement requires full-KL measurement")
+        if self.full_kl_geometry_measurement and not self.full_kl_actor_measurement:
+            raise ValueError("Full-KL geometry measurement requires actor KL forwards")
         if self.full_kl_jvp_measurement and not self.full_kl_geometry_measurement:
             raise ValueError("Parameter-JVP measurement requires full-KL geometry measurement")
         # FSDP invokes parameter collectives for every forward. Dynamic batches
@@ -750,23 +753,24 @@ class DataParallelPPOActor(BasePPOActor):
                 raise ValueError("Full-KL geometry measurement requires an actor optimizer")
             import time
 
-            kl_start_time = time.perf_counter()
-            kl_data = data.select(batch_keys=[
-                "input_ids", "attention_mask", "position_ids", "responses", "kl_positions", "kl_weights"
-            ])
-            kl_anchor = self._score_full_kl(kl_data)
-            kl_previous = kl_anchor
-            jvp_anchor_parameters = (
-                self._capture_full_kl_jvp_anchor() if self.full_kl_jvp_measurement else None
-            )
-            kl_weights = kl_data.batch["kl_weights"][kl_data.batch["kl_positions"] >= 0].double().cpu()
-            kl_self = 0.0
-            if self.config.full_kl_self_check and optimizer_step_start == 0:
-                repeated = self._score_full_kl(kl_data)
-                kl_self = self._reduce_full_kl(kl_anchor, kl_anchor, repeated, kl_weights)["adjacent_kl"]
-                if kl_self > 1e-6:
-                    raise RuntimeError(f"Repeated full-KL forward numerical floor too large: {kl_self}")
-            kl_anchor_seconds = time.perf_counter() - kl_start_time
+            if self.full_kl_actor_measurement:
+                kl_start_time = time.perf_counter()
+                kl_data = data.select(batch_keys=[
+                    "input_ids", "attention_mask", "position_ids", "responses", "kl_positions", "kl_weights"
+                ])
+                kl_anchor = self._score_full_kl(kl_data)
+                kl_previous = kl_anchor
+                jvp_anchor_parameters = (
+                    self._capture_full_kl_jvp_anchor() if self.full_kl_jvp_measurement else None
+                )
+                kl_weights = kl_data.batch["kl_weights"][kl_data.batch["kl_positions"] >= 0].double().cpu()
+                kl_self = 0.0
+                if self.config.full_kl_self_check and optimizer_step_start == 0:
+                    repeated = self._score_full_kl(kl_data)
+                    kl_self = self._reduce_full_kl(kl_anchor, kl_anchor, repeated, kl_weights)["adjacent_kl"]
+                    if kl_self > 1e-6:
+                        raise RuntimeError(f"Repeated full-KL forward numerical floor too large: {kl_self}")
+                kl_anchor_seconds = time.perf_counter() - kl_start_time
 
         if self.full_kl_hvp_measurement:
             self.full_kl_hvp_callback(data.meta_info, optimizer_step_start, 0)
@@ -1035,17 +1039,22 @@ class DataParallelPPOActor(BasePPOActor):
                     jvp_measurement = None
                     jvp_seconds = None
                 if self.full_kl_measurement:
-                    kl_start_time = time.perf_counter()
-                    current = self._score_full_kl(kl_data)
-                    kl_metrics = self._reduce_full_kl(
-                        kl_previous, kl_anchor, current, kl_weights, jvp_measurement
-                    )
+                    kl_metrics = {}
+                    if self.full_kl_actor_measurement:
+                        kl_start_time = time.perf_counter()
+                        current = self._score_full_kl(kl_data)
+                        kl_metrics = self._reduce_full_kl(
+                            kl_previous, kl_anchor, current, kl_weights, jvp_measurement
+                        )
+                        kl_metrics.update({
+                            "self_kl": kl_self, "anchor_seconds": kl_anchor_seconds,
+                            "measurement_seconds": time.perf_counter() - kl_start_time,
+                        })
+                        kl_previous = current
                     kl_metrics.update({
                         "optimizer_step": optimizer_step_start + update_age + 1,
                         "policy_age": update_age, "age_after": update_age + 1,
                         "lr_used": lr_used, "grad_norm": grad_norm.item(), "update_applied": 1,
-                        "self_kl": kl_self, "anchor_seconds": kl_anchor_seconds,
-                        "measurement_seconds": time.perf_counter() - kl_start_time,
                     })
                     if update_norm is not None:
                         kl_metrics["update_norm"] = update_norm.item()
@@ -1056,7 +1065,6 @@ class DataParallelPPOActor(BasePPOActor):
                         kl_metrics.update(hvp_metrics)
                         kl_metrics["hvp_update_norm"] = actual_update_norm
                     metrics.update({f"full_kl/age_{update_age:02d}/{k}": v for k, v in kl_metrics.items()})
-                    kl_previous = current
                 mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
                 append_to_dict(metrics, mini_batch_metrics)
                 if staleness_accumulator is not None:

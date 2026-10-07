@@ -1108,6 +1108,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     "--gpus", str(self.world_size), "--steps", str(config.full_kl_hvp_steps),
                     "--tolerance", str(config.full_kl_hvp_tolerance), "--seed", str(config.full_kl_seed),
                 ]
+                if not config.full_kl_hvp_compute_quadratic:
+                    command.append("--skip-quadratic")
                 print(f"Starting exact HVP: anchor={anchor_update} age={age} output={report_path}", flush=True)
                 subprocess.run(command, env=environment, check=True, timeout=config.full_kl_hvp_timeout)
                 with report_path.open() as stream:

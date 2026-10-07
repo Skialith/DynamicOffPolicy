@@ -107,6 +107,9 @@ log_staleness_metrics: false
 # Passive full-vocabulary KL on sampled real-rollout prefixes
 full_kl_measurement: false
 
+# Keep prefix selection/logging while optionally skipping BF16 actor KL forwards
+full_kl_actor_measurement: true
+
 # Log actual AdamW update norm and frozen-anchor finite-difference Fisher geometry
 full_kl_geometry_measurement: false
 
@@ -115,6 +118,7 @@ full_kl_jvp_measurement: false
 
 # Exact frozen-KL HVP on a separate, layer-parallel measurement model
 full_kl_hvp_measurement: false
+full_kl_hvp_compute_quadratic: true
 full_kl_hvp_steps: 200
 full_kl_hvp_tolerance: 0.001
 full_kl_hvp_visible_devices: ""

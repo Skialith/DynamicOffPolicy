@@ -21,7 +21,7 @@ experiments/scripts/sync_remote_raw_artifacts.sh
 
 | 实验 | 运行与本地归档状态 | 结果记录 | 入口 |
 | --- | --- | --- | --- |
-| 2026-10-06：正常训练 batch 的 Fisher K/Q/B 短程多轮 | N=4 五轮/20 updates、N=8 三轮/24 updates；本地配置静态核对通过，未部署或提交 | 尚未要求分析 | [实验族入口](20261006_fisher_kqb_short_rollouts/README.md) |
+| 2026-10-06：正常训练 batch 的 Fisher K/B 短程多轮 | N=4 五轮/20 updates、N=8 三轮/24 updates；10-07 改为 K/B-only，无 MATH500、旧 actor KL 或逐 age Q；待提交 | 尚未要求分析 | [实验族入口](20261006_fisher_kqb_short_rollouts/README.md) |
 | 2026-10-05：等 96 次更新 Fisher K/Q/B N=4/8 | 10-06 probe 190665 已完成 K/Q/B 工程验收；原 96-update 两组保持取消 | 尚未要求分析 | [实验族入口](20261005_fisher_kqb_n4_n8/README.md) |
 | 2026-10-04：8B 四卡精确 KL-HVP 工程探针 | 187793/187794 串行完成，两个初值均第 30 次迭代残差达标；无新增权重 | 尚未要求正式分析 | [README](20261004_exact_kl_hvp_8b_4gpu/README.md) |
 | 2026-10-04：小模型精确 KL-HVP 与 FSDP 梯度差分对照 | 165 对照完成；0.6B 跨卡/单卡精确 AD 通过，固定尺度差分数值验收失败 | 原始自检已归档，尚未要求正式分析 | [README](20261004_kl_hvp_exact_vs_fsdp_fd/README.md) |

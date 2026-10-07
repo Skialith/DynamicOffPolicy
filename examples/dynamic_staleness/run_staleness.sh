@@ -101,6 +101,12 @@ FULL_KL_EXPERIMENT=${FULL_KL_EXPERIMENT:-0}
 FULL_KL_GEOMETRY=${FULL_KL_GEOMETRY:-0}
 FULL_KL_JVP=${FULL_KL_JVP:-0}
 FULL_KL_HVP=${FULL_KL_HVP:-0}
+FULL_KL_ACTOR_MEASUREMENT=${FULL_KL_ACTOR_MEASUREMENT:-1}
+HVP_COMPUTE_QUADRATIC=${HVP_COMPUTE_QUADRATIC:-1}
+if [[ ! "${FULL_KL_ACTOR_MEASUREMENT}" =~ ^[01]$ || ! "${HVP_COMPUTE_QUADRATIC}" =~ ^[01]$ ]]; then
+    echo "FULL_KL_ACTOR_MEASUREMENT and HVP_COMPUTE_QUADRATIC must be 0 or 1" >&2
+    exit 2
+fi
 if [[ "${FULL_KL_HVP}" != 0 && "${FULL_KL_HVP}" != 1 ]]; then
     echo "FULL_KL_HVP must be 0 or 1" >&2
     exit 2
@@ -403,6 +409,10 @@ overrides=(
 
 if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
     FULL_KL_GEOMETRY_BOOL=false
+    FULL_KL_ACTOR_BOOL=false
+    if [[ "${FULL_KL_ACTOR_MEASUREMENT}" == 1 ]]; then
+        FULL_KL_ACTOR_BOOL=true
+    fi
     if [[ "${FULL_KL_GEOMETRY}" == 1 ]]; then
         FULL_KL_GEOMETRY_BOOL=true
     fi
@@ -412,6 +422,7 @@ if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
     fi
     overrides+=(
         "actor_rollout_ref.actor.full_kl_measurement=true"
+        "actor_rollout_ref.actor.full_kl_actor_measurement=${FULL_KL_ACTOR_BOOL}"
         "actor_rollout_ref.actor.full_kl_geometry_measurement=${FULL_KL_GEOMETRY_BOOL}"
         "actor_rollout_ref.actor.full_kl_jvp_measurement=${FULL_KL_JVP_BOOL}"
         "actor_rollout_ref.actor.full_kl_num_prompts=${KL_NUM_PROMPTS}"
@@ -425,8 +436,13 @@ if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
 fi
 
 if [[ "${FULL_KL_HVP}" == 1 ]]; then
+    HVP_QUADRATIC_BOOL=false
+    if [[ "${HVP_COMPUTE_QUADRATIC}" == 1 ]]; then
+        HVP_QUADRATIC_BOOL=true
+    fi
     overrides+=(
         "actor_rollout_ref.actor.full_kl_hvp_measurement=true"
+        "actor_rollout_ref.actor.full_kl_hvp_compute_quadratic=${HVP_QUADRATIC_BOOL}"
         "actor_rollout_ref.actor.full_kl_hvp_steps=${HVP_POWER_STEPS:-200}"
         "actor_rollout_ref.actor.full_kl_hvp_tolerance=${HVP_POWER_TOLERANCE:-0.001}"
         "actor_rollout_ref.actor.full_kl_hvp_visible_devices='${CUDA_VISIBLE_DEVICES}'"
@@ -441,9 +457,12 @@ if [[ "${DRY_RUN}" == 1 ]]; then
 fi
 if [[ "${FULL_KL_HVP}" == 1 ]]; then
     "${PYTHON_BIN}" -m verl.trainer.main_ppo "${overrides[@]}" "$@"
-    exec "${PYTHON_BIN}" "${SCRIPT_DIR}/verify_training_fisher.py" \
-        --run-dir "${OUTPUT_DIR}" --updates "${REMAINING_UPDATES}" --reuse-n "${REUSE_N}" \
-        --prompts "${KL_NUM_PROMPTS}" --tolerance "${HVP_POWER_TOLERANCE:-0.001}" \
-        --scratch "${TMPDIR}/fisher-hvp"
+    validation_args=(--run-dir "${OUTPUT_DIR}" --updates "${REMAINING_UPDATES}" --reuse-n "${REUSE_N}"
+                     --prompts "${KL_NUM_PROMPTS}" --tolerance "${HVP_POWER_TOLERANCE:-0.001}"
+                     --scratch "${TMPDIR}/fisher-hvp")
+    if [[ "${HVP_COMPUTE_QUADRATIC}" == 0 ]]; then
+        validation_args+=(--skip-quadratic)
+    fi
+    exec "${PYTHON_BIN}" "${SCRIPT_DIR}/verify_training_fisher.py" "${validation_args[@]}"
 fi
 exec "${PYTHON_BIN}" -m verl.trainer.main_ppo "${overrides[@]}" "$@"
