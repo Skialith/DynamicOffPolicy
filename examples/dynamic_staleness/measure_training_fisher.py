@@ -5,6 +5,7 @@ caches live in a private, job-local directory and are removed by the training wo
 """
 
 import argparse
+from contextlib import nullcontext
 from functools import partial
 import json
 import math
@@ -165,7 +166,7 @@ def make_product(model, rows, anchors):
     return product
 
 
-def make_layerwise_product(model, rows, anchors):
+def make_layerwise_product(model, rows, anchors, vjp_cpu_offload=True):
     parameters = list(model.parameters())
     calls = 0
 
@@ -188,7 +189,8 @@ def make_layerwise_product(model, rows, anchors):
             progress("row_start")
             part = layerwise_fisher_product(
                 model, row, anchor, direction,
-                saved_context=partial(offload_saved_activations, parameters, direction, statistics),
+                saved_context=(partial(offload_saved_activations, parameters, direction, statistics)
+                               if vjp_cpu_offload else nullcontext),
                 progress=progress,
             )
             if total is None:
@@ -247,7 +249,7 @@ def displacement_direction(named_parameters, anchor, current):
     return direction
 
 
-def verify_gpu_offload(gpus):
+def verify_gpu_offload(gpus, vjp_cpu_offload=True):
     """Compare the layerwise Fisher with the original double-backward HVP."""
     torch.manual_seed(17)
     model = Qwen3ForCausalLM(Qwen3Config(
@@ -263,13 +265,44 @@ def verify_gpu_offload(gpus):
     parameters = list(model.parameters())
     direction = [torch.randn_like(parameter) for parameter in parameters]
     resident = exact_product(weighted_kl(selected_logits(model, row), anchor, row["weights"]), parameters, direction)
-    offloaded = make_layerwise_product(model, [row], [anchor])(direction)
+    offloaded = make_layerwise_product(model, [row], [anchor], vjp_cpu_offload)(direction)
     for expected, actual in zip(resident, offloaded):
         torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
     report = {"passed": True, "backend": "layerwise_jvp_fisher_vjp", "gpus": gpus,
               "parameter_count": sum(p.numel() for p in parameters),
-              "atol": 1e-6, "rtol": 1e-5}
+              "atol": 1e-6, "rtol": 1e-5, "vjp_activations_cpu_offload": vjp_cpu_offload}
     print(json.dumps({"hvp_gpu_offload_self_check": report}), flush=True)
+    return report
+
+
+def verify_long_prefix(model, direction, length, gpus, vjp_cpu_offload):
+    """Resource check on two synthetic longest rows, separate from research q."""
+    ids = torch.arange(1, length + 1).remainder(model.config.vocab_size).unsqueeze(0)
+    row = {"input_ids": ids, "position_ids": torch.arange(length).unsqueeze(0),
+           "indices": torch.arange(length - 8, length),
+           "weights": torch.full((8,), 1 / 16, dtype=torch.float64)}
+    print(json.dumps({"hvp_long_prefix_stress_start": {
+        "prefix_length": length, "contexts": 2, "positions_per_context": 8,
+        "vjp_activations_cpu_offload": vjp_cpu_offload,
+    }}), flush=True)
+    started = time.perf_counter()
+    with torch.no_grad():
+        anchor = selected_logits(model, row).double().log_softmax(-1).cpu()
+    product_started = time.perf_counter()
+    # The second row runs with the first row's full Fv accumulator still resident.
+    result = make_layerwise_product(model, [row, row], [anchor, anchor], vjp_cpu_offload)(direction)
+    norm = vector_dot(result, result).sqrt().item()
+    if not math.isfinite(norm):
+        raise RuntimeError("Non-finite synthetic long-prefix Fisher product")
+    product_seconds = time.perf_counter() - product_started
+    del result
+    report = {"passed": True, "purpose": "synthetic_resource_check_not_research_q",
+              "prefix_length": length, "contexts": 2, "positions_per_context": 8,
+              "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+              "vjp_activations_cpu_offload": vjp_cpu_offload, "fvp_norm": norm,
+              "fvp_and_norm_seconds": product_seconds, "seconds": time.perf_counter() - started,
+              "memory": memory(gpus), "memory_scope": "measurement_process_peak_so_far"}
+    print(json.dumps({"hvp_long_prefix_stress_completed": report}), flush=True)
     return report
 
 
@@ -280,7 +313,9 @@ def run(args):
     if torch.cuda.device_count() != args.gpus:
         raise RuntimeError("Measurement process must see all allocated GPUs")
     started = time.perf_counter()
-    offload_check = verify_gpu_offload(args.gpus) if args.age == 0 and args.anchor_update == 0 else None
+    vjp_cpu_offload = not args.vjp_gpu_activations
+    stress_check = None
+    offload_check = verify_gpu_offload(args.gpus, vjp_cpu_offload) if args.age == 0 and args.anchor_update == 0 else None
     payload = torch.load(args.context, map_location="cpu", weights_only=True)
     if payload["anchor_update"] != args.anchor_update:
         raise ValueError("Snapshot and rollout anchor do not match")
@@ -305,7 +340,8 @@ def run(args):
         maximum_gradient_norm = 0.0
         for index, (row, anchor) in enumerate(zip(rows, anchors), 1):
             gradient = layerwise_kl_gradient(
-                model, row, anchor, saved_context=partial(offload_saved_activations, parameters),
+                model, row, anchor,
+                saved_context=partial(offload_saved_activations, parameters) if vjp_cpu_offload else nullcontext,
             )
             maximum_gradient_norm = max(maximum_gradient_norm, vector_dot(gradient, gradient).sqrt().item())
             del gradient
@@ -320,7 +356,12 @@ def run(args):
                       for i in range(args.gpus)]
         direction = [torch.randn(p.shape, dtype=p.dtype, device=p.device,
                                  generator=generators[p.device.index]) for p in parameters]
-        power = power_iteration(make_layerwise_product(model, rows, anchors), direction, args.steps, args.tolerance)
+        if args.stress_prefix_length and args.anchor_update == 0:
+            stress_check = verify_long_prefix(model, direction, args.stress_prefix_length,
+                                              args.gpus, vjp_cpu_offload)
+            write_json(args.output.with_name("long_prefix_stress.json"), stress_check)
+        power = power_iteration(make_layerwise_product(model, rows, anchors, vjp_cpu_offload),
+                                direction, args.steps, args.tolerance)
         del direction
         power["anchor_gradient_max_row_norm"] = maximum_gradient_norm
         write_json(args.cycle / "power.json", power)
@@ -346,7 +387,7 @@ def run(args):
                 quadratic = 0.0
             else:
                 normalize_in_place(direction, norm)
-                result = make_layerwise_product(model, rows, anchors)(direction)
+                result = make_layerwise_product(model, rows, anchors, vjp_cpu_offload)(direction)
                 quadratic = 0.5 * norm.item() ** 2 * vector_dot(direction, result).item()
                 del result
         del direction
@@ -370,7 +411,9 @@ def run(args):
               "optimizer_step": args.anchor_update + args.age, "context_path": str(args.context),
               "parameter_count": sum(p.numel() for p in parameters), "parameter_dtype": "float32",
               "fisher_backend": "layerwise_jvp_fisher_vjp",
-              "saved_tensors": "detached_layer_inputs_cpu_single_layer_vjp_activations_cpu",
+              "saved_tensors": ("detached_layer_inputs_cpu_single_layer_vjp_activations_"
+                                + ("cpu" if vjp_cpu_offload else "gpu")),
+              "vjp_activations_cpu_offload": vjp_cpu_offload,
               "whole_model_second_order_graph": False,
               "quadratic_measured": not args.skip_quadratic,
               "kl_dtype": "float64", "aggregation": "prompt_equal_then_position_equal",
@@ -381,6 +424,8 @@ def run(args):
         report["power"] = power
     if offload_check is not None:
         report["gpu_offload_self_check"] = offload_check
+    if stress_check is not None:
+        report["long_prefix_stress"] = stress_check
     write_json(args.output, report)
     print(json.dumps({"hvp_completed": report}), flush=True)
 
@@ -397,7 +442,13 @@ if __name__ == "__main__":
     parser.add_argument("--tolerance", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=20261005)
     parser.add_argument("--skip-quadratic", action="store_true", help="Measure K/B without a displacement FVP for Q")
+    parser.add_argument("--vjp-gpu-activations", action="store_true",
+                        help="Keep only the current layer VJP graph on GPU; detached layer inputs remain on CPU")
+    parser.add_argument("--stress-prefix-length", type=int, default=0,
+                        help="Initial-anchor synthetic resource check on two rows with 8 positions; 0 disables")
     arguments = parser.parse_args()
     if arguments.steps < 1 or arguments.tolerance <= 0 or arguments.age < 0:
         parser.error("Invalid measurement budget, tolerance or age")
+    if arguments.stress_prefix_length != 0 and arguments.stress_prefix_length < 8:
+        parser.error("Stress prefix length must be 0 or at least 8")
     run(arguments)

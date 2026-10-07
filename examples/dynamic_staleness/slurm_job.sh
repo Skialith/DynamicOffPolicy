@@ -184,6 +184,10 @@ echo "persistent_cache=${PERSISTENT_CACHE_ROOT} job_local_cache=${JOB_LOCAL_ROOT
 echo "execution_limits=actor_tokens_per_gpu:${ACTOR_MAX_TOKENS_PER_GPU},infer_tokens_per_gpu:${INFER_MAX_TOKENS_PER_GPU},rollout_batched_tokens:${ROLLOUT_MAX_BATCHED_TOKENS},rollout_max_seqs:${ROLLOUT_MAX_NUM_SEQS}"
 nvidia-smi -L
 
+if [[ "${FISHER_VJP_N4_PREFLIGHT:-0}" == 1 ]]; then
+    bash "${SCRIPT_DIR}/verify_vjp_gpu_n4_setup.sh"
+fi
+
 case "${TARGET}" in
     kl_probe)
         exec bash "${SCRIPT_DIR}/run_full_kl_probe.sh" "$@"

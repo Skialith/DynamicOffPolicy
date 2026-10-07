@@ -98,7 +98,7 @@ class TrainingFisherTest(unittest.TestCase):
             power = {"lambda_estimate": 3.0, "residual": 1e-4, "iterations": 12, "converged": True}
             (cycle / "power.json").write_text(json.dumps(power))
             args = SimpleNamespace(cycle=cycle, context=cycle / "contexts.pt", output=cycle / "report.json",
-                                   anchor_update=0, age=1, gpus=4, skip_quadratic=True)
+                                   anchor_update=0, age=1, gpus=4, skip_quadratic=True, vjp_gpu_activations=False)
             with patch.object(torch.cuda, "device_count", return_value=4), \
                  patch.object(measure, "place_layers"), patch.object(measure, "memory", return_value={}), \
                  patch.object(measure, "make_layerwise_product", side_effect=AssertionError("Unexpected Q FVP")):
@@ -211,9 +211,37 @@ class TrainingFisherTest(unittest.TestCase):
         anchors = [measure.selected_logits(model, row).detach().double().log_softmax(-1) for row in rows]
         direction = [torch.randn_like(parameter) for parameter in model.parameters()]
         expected = measure.make_product(model, rows, anchors)(direction)
-        actual = measure.make_layerwise_product(model, rows, anchors)(direction)
-        for reference, value in zip(expected, actual):
-            torch.testing.assert_close(value, reference, atol=1e-6, rtol=1e-5)
+        for cpu_offload in (True, False):
+            with self.subTest(vjp_cpu_offload=cpu_offload):
+                if cpu_offload:
+                    actual = measure.make_layerwise_product(model, rows, anchors)(direction)
+                else:
+                    with patch.object(measure, "offload_saved_activations",
+                                      side_effect=AssertionError("GPU VJP must not use CPU graph hooks")):
+                        actual = measure.make_layerwise_product(
+                            model, rows, anchors, vjp_cpu_offload=False)(direction)
+                for reference, value in zip(expected, actual):
+                    torch.testing.assert_close(value, reference, atol=1e-6, rtol=1e-5)
+
+    def test_synthetic_long_prefix_product_matches_exact_hvp(self):
+        torch.manual_seed(41)
+        model = self.tiny_model().eval()
+        direction = [torch.randn_like(parameter) for parameter in model.parameters()]
+        length = 16
+        row = {"input_ids": torch.arange(1, length + 1).remainder(model.config.vocab_size).unsqueeze(0),
+               "position_ids": torch.arange(length).unsqueeze(0), "indices": torch.arange(length - 8, length),
+               "weights": torch.full((8,), 1 / 8, dtype=torch.float64)}
+        anchor = measure.selected_logits(model, row).detach().double().log_softmax(-1)
+        expected = measure.exact_product(
+            measure.weighted_kl(measure.selected_logits(model, row), anchor, row["weights"]),
+            list(model.parameters()), direction,
+        )
+        expected_norm = measure.vector_dot(expected, expected).sqrt().item()
+        with patch.object(measure, "memory", return_value={}):
+            report = measure.verify_long_prefix(model, direction, length, 4, vjp_cpu_offload=False)
+        self.assertTrue(report["passed"])
+        self.assertEqual((report["prefix_length"], report["contexts"], report["positions_per_context"]), (16, 2, 8))
+        self.assertAlmostEqual(report["fvp_norm"], expected_norm, delta=1e-6)
 
     def test_checkpoint_reduces_saved_graph_and_matches_hvp(self):
         torch.manual_seed(17)

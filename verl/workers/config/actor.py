@@ -170,6 +170,8 @@ class ActorConfig(BaseConfig):
     full_kl_jvp_measurement: bool = False
     full_kl_hvp_measurement: bool = False
     full_kl_hvp_compute_quadratic: bool = True
+    full_kl_hvp_vjp_cpu_offload: bool = True
+    full_kl_hvp_stress_prefix_length: int = 0
     full_kl_hvp_steps: int = 200
     full_kl_hvp_tolerance: float = 1e-3
     full_kl_hvp_visible_devices: str = ""

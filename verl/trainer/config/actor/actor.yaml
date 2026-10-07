@@ -117,6 +117,12 @@ full_kl_jvp_measurement: false
 # Exact frozen-KL HVP on a separate, layer-parallel measurement model
 full_kl_hvp_measurement: false
 full_kl_hvp_compute_quadratic: true
+
+# Only the current layer VJP graph; detached layer inputs still stay on CPU.
+full_kl_hvp_vjp_cpu_offload: true
+
+# Initial-anchor synthetic resource check, separate from measured rollout prefixes.
+full_kl_hvp_stress_prefix_length: 0
 full_kl_hvp_steps: 200
 full_kl_hvp_tolerance: 0.001
 full_kl_hvp_visible_devices: ""

@@ -102,6 +102,12 @@ FULL_KL_JVP=${FULL_KL_JVP:-0}
 FULL_KL_HVP=${FULL_KL_HVP:-0}
 FULL_KL_ACTOR_MEASUREMENT=${FULL_KL_ACTOR_MEASUREMENT:-1}
 HVP_COMPUTE_QUADRATIC=${HVP_COMPUTE_QUADRATIC:-1}
+HVP_VJP_CPU_OFFLOAD=${HVP_VJP_CPU_OFFLOAD:-1}
+HVP_STRESS_PREFIX_LENGTH=${HVP_STRESS_PREFIX_LENGTH:-0}
+if [[ ! "${HVP_VJP_CPU_OFFLOAD}" =~ ^[01]$ ]]; then
+    echo "HVP_VJP_CPU_OFFLOAD must be 0 or 1" >&2
+    exit 2
+fi
 if [[ ! "${FULL_KL_ACTOR_MEASUREMENT}" =~ ^[01]$ || ! "${HVP_COMPUTE_QUADRATIC}" =~ ^[01]$ ]]; then
     echo "FULL_KL_ACTOR_MEASUREMENT and HVP_COMPUTE_QUADRATIC must be 0 or 1" >&2
     exit 2
@@ -427,8 +433,14 @@ if [[ "${FULL_KL_HVP}" == 1 ]]; then
     if [[ "${HVP_COMPUTE_QUADRATIC}" == 1 ]]; then
         HVP_QUADRATIC_BOOL=true
     fi
+    HVP_VJP_CPU_OFFLOAD_BOOL=true
+    if [[ "${HVP_VJP_CPU_OFFLOAD}" == 0 ]]; then
+        HVP_VJP_CPU_OFFLOAD_BOOL=false
+    fi
     overrides+=(
         "actor_rollout_ref.actor.full_kl_hvp_measurement=true"
+        "actor_rollout_ref.actor.full_kl_hvp_vjp_cpu_offload=${HVP_VJP_CPU_OFFLOAD_BOOL}"
+        "actor_rollout_ref.actor.full_kl_hvp_stress_prefix_length=${HVP_STRESS_PREFIX_LENGTH}"
         "actor_rollout_ref.actor.full_kl_hvp_compute_quadratic=${HVP_QUADRATIC_BOOL}"
         "actor_rollout_ref.actor.full_kl_hvp_steps=${HVP_POWER_STEPS:-200}"
         "actor_rollout_ref.actor.full_kl_hvp_tolerance=${HVP_POWER_TOLERANCE:-0.001}"
