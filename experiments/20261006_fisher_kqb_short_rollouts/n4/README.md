@@ -38,10 +38,13 @@ bash experiments/20261006_fisher_kqb_short_rollouts/scripts/submit_experiment.sh
 | 项目 | 记录 |
 | --- | --- |
 | 前置验收 | 190665 已通过全 8 ages K/Q/B；该 probe 的训练 mini-batch 为 8，正常 256 的整体资源仍需运行核验 |
-| job / 提交、开始、结束时间 | 未提交，尚无 job ID 或运行时间 |
-| 计划依赖 / 时限 | 默认无 Slurm 依赖；可显式传入 SLURM_DEPENDENCY；时限 7 天 |
-| 请求资源 | gpu_a800、4 GPU；实际 CPU、主存、节点待分配后核验 |
-| 核验状态 | 2026-10-07：已部署 K/B-only；13 项 CPU 单元测试、实际 Hydra 配置、脚本语法和 diff 检查通过；待提交 |
+| job ID | 194105 |
+| 提交时间 | 北京时间 2026-10-07 11:14:52 |
+| 实际开始 / 结束时间 | 尚未开始 / 尚未结束 |
+| 实现提交 | `ba91bc6`；部署在 `/data/run01/scyb980/cyt/src/fisher_kqb_20261005/` |
+| Slurm 依赖 / 时限 | 无依赖（Dependency=null）；7 天 |
+| 请求资源 | gpu_a800、4 GPU；分区默认 8 CPU/GPU、15700 MiB/CPU，预计 32 CPU、502400 MiB；实际节点及分配待启动核验 |
+| 核验状态 | 北京时间 2026-10-07 11:16:01：PENDING，Reason=Priority；尚无训练或测量结果 |
 
 2026-10-07 提交前核查：账户无在队列作业；Ceph 配额 268435456000 bytes、
 已用 38755453154 bytes。保留当前 CPU offload。CPU 检查执行
@@ -54,8 +57,7 @@ bash experiments/20261006_fisher_kqb_short_rollouts/scripts/submit_experiment.sh
 远端输出根为部署下 `experiments/20261006_fisher_kqb_short_rollouts/n4/raw/formal/`，
 实例编码时间/job/GPU/TP/seed/phase，实际路径以日志 `output=` 为准；实验名为
 `fisher_kqb_short_n4_u0020`。Slurm 日志为部署下
-`logs/slurm/fisher-kqb-short-n4-g4-<job-id>.out`。
+`logs/slurm/fisher-kqb-short-n4-g4-194105.out`。
 
 运行后包含 `kl_updates.jsonl`、`hvp_diagnostics/start_*/age_*.json`、结束验收
-`hvp_validation.json`、配置、计时和 TensorBoard；无评测逐题生成和 Q 指标。当前仅已有本 README
-及共用提交脚本，没有 raw 或派生产物，不建立空目录。
+`hvp_validation.json`、配置、计时和 TensorBoard；无评测逐题生成和 Q 指标。当前已提交作业但尚未启动，没有 raw 测量数据或派生产物，不建立空目录。
