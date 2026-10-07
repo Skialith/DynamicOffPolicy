@@ -118,8 +118,9 @@ if [[ "${FULL_KL_JVP}" != 0 && "${FULL_KL_JVP}" != 1 ]]; then
     echo "FULL_KL_JVP must be 0 or 1, got: ${FULL_KL_JVP}" >&2
     exit 2
 fi
-if [[ "${FULL_KL_JVP}" == 1 ]] && [[ "${FULL_KL_EXPERIMENT}" != 1 || "${FULL_KL_ACTOR_MEASUREMENT}" != 1 ]]; then
-    echo "FULL_KL_JVP=1 requires full-KL actor forwards" >&2
+# Historical functional JVP inside legacy FSDP is paused, including old recipes.
+if [[ "${FULL_KL_JVP}" == 1 ]]; then
+    echo "FULL_KL_JVP=1 is paused; initial legacy-FSDP functional JVP is retained in comments" >&2
     exit 2
 fi
 if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then

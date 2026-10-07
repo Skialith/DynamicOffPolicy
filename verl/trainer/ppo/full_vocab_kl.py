@@ -200,34 +200,35 @@ The logit immediately BEFORE each response token predicts that token.
     return log_probs
 
 
-def score_context_row_parameter_jvp(model, row, device, parameters, tangents, buffers):
-    """Score one row at fixed parameters and return its parameter-to-logit JVP."""
-    valid = row["attention_mask"].bool()
-    ids = row["input_ids"][valid].unsqueeze(0).to(device)
-    position_ids = row["position_ids"][valid].unsqueeze(0).to(device)
-    selected = row["kl_positions"][row["kl_positions"] >= 0]
-    prompt_width = row["input_ids"].numel() - row["responses"].numel()
-    absolute = prompt_width + selected - 1
-    indices = valid.long().cumsum(0)[absolute] - 1
-    if (indices < 0).any() or not valid[absolute].all():
-        raise ValueError("KL position does not have a valid causal prefix")
-    indices = indices.to(device)
+# HISTORICAL ONLY (2026-10-07): initial functional parameter JVP through legacy FSDP; paused.
+# def score_context_row_parameter_jvp(model, row, device, parameters, tangents, buffers):
+#     """Score one row at fixed parameters and return its parameter-to-logit JVP."""
+#     valid = row["attention_mask"].bool()
+#     ids = row["input_ids"][valid].unsqueeze(0).to(device)
+#     position_ids = row["position_ids"][valid].unsqueeze(0).to(device)
+#     selected = row["kl_positions"][row["kl_positions"] >= 0]
+#     prompt_width = row["input_ids"].numel() - row["responses"].numel()
+#     absolute = prompt_width + selected - 1
+#     indices = valid.long().cumsum(0)[absolute] - 1
+#     if (indices < 0).any() or not valid[absolute].all():
+#         raise ValueError("KL position does not have a valid causal prefix")
+#     indices = indices.to(device)
 
-    def forward(parameter_values):
-        output = torch.func.functional_call(
-            model,
-            (parameter_values, buffers),
-            (),
-            {
-                "input_ids": ids,
-                "attention_mask": None,
-                "position_ids": position_ids,
-                "use_cache": False,
-            },
-            strict=True,
-        )
-        return output.logits[0, indices, :].float()
+#     def forward(parameter_values):
+#         output = torch.func.functional_call(
+#             model,
+#             (parameter_values, buffers),
+#             (),
+#             {
+#                 "input_ids": ids,
+#                 "attention_mask": None,
+#                 "position_ids": position_ids,
+#                 "use_cache": False,
+#             },
+#             strict=True,
+#         )
+#         return output.logits[0, indices, :].float()
 
-    logits, logits_jvp = torch.func.jvp(forward, (parameters,), (tangents,))
-    log_probs = torch.log_softmax(logits, dim=-1)
-    return log_probs.detach().cpu(), logits_jvp.detach().float().cpu()
+#     logits, logits_jvp = torch.func.jvp(forward, (parameters,), (tangents,))
+#     log_probs = torch.log_softmax(logits, dim=-1)
+#     return log_probs.detach().cpu(), logits_jvp.detach().float().cpu()

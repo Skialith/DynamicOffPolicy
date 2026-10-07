@@ -15,9 +15,23 @@
 | `tests/trainer/ppo/`、`tests/workers/actor/` | 本项目的 KL/staleness/Fisher 回归测试 |
 | `scripts/`、`pyproject.toml`、`requirements*.txt` | 框架辅助工具、安装与依赖配置 |
 
-有限 logits/log-prob 差分代理已删除。直接全词表 KL、独立参数 JVP 和当前 Fisher K/B
-测量保留。实验文档、原始数据、表格、图表、权重和运行环境保留在本地或原有远端位置，
+有限 logits/log-prob 差分代理已删除。直接全词表 KL 和当前 Fisher K/B 测量保留。
+实验文档、原始数据、表格、图表、权重和运行环境保留在本地或原有远端位置，
 不随当前代码树同步。已有本地提交历史保留。
+
+JVP 实现状态（2026-10-07）：
+
+| 路线 | 状态与代码入口 |
+| --- | --- |
+| 训练侧 legacy FSDP 内直接 functional 参数 JVP | 已注释停用，保留最初逻辑考量：[actor](verl/workers/actor/dp_actor.py)、[兼容性探针](examples/dynamic_staleness/verify_fsdp_parameter_jvp.py) |
+| 参数扰动后用 logits 中心差分近似 JVP | 已注释停用，列为最后 JVP 实现备选：[扰动探针](examples/dynamic_staleness/verify_fsdp_central_difference.py)；不同于已删除的更新前后输出差分 KL 代理 |
+| 独立非 FSDP 测量模型的逐层参数/输入 JVP → softmax Fisher → 逐层 VJP | 当前保留实现：[layerwise_fisher.py](examples/dynamic_staleness/layerwise_fisher.py)；embedding、norm、head 等全参数参与 |
+
+旧 JVP/FVP 联测提交入口会明确拒绝启动，不提交 GPU 作业。独立 KL 梯度中心差分对照
+保留在 [compare_kl_hvp.py](experiments/20261004_kl_hvp_exact_vs_fsdp_fd/scripts/compare_kl_hvp.py)。
+它通过两个普通 backward 近似 HVP；整网 double-backward 通过二阶自动微分计算同一
+anchor Fisher，CPU 图 offload 与前向重算只改变存储/执行方式。后者保留作小模型参考，
+当前长前缀测量使用逐层 JVP/VJP，避免保留整网二阶图。
 
 ## 运行
 

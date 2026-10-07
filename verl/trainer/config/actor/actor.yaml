@@ -110,7 +110,8 @@ full_kl_measurement: false
 # Keep prefix selection/logging while optionally skipping BF16 actor KL forwards
 full_kl_actor_measurement: true
 
-# Strict parameter-space frozen-Fisher geometry from online parameter JVPs
+# Historical legacy-FSDP functional parameter JVP: paused; true is rejected.
+# Independent layerwise JVP/VJP remains active via full_kl_hvp_measurement.
 full_kl_jvp_measurement: false
 
 # Exact frozen-KL HVP on a separate, layer-parallel measurement model

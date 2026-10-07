@@ -10,9 +10,13 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 
 case "${TARGET}" in
-    smoke|probe|adam_probe|performance_probe|kl_probe|jvp_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|anchor|branch|n4_then_n8) ;;
+    jvp_probe|jvp_compat_probe|fvp_compat_probe)
+        echo "${TARGET} is paused; historical JVP implementations are retained in comments" >&2
+        exit 2
+        ;;
+    smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|anchor|branch|n4_then_n8) ;;
     *)
-        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|jvp_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
+        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
         exit 2
         ;;
 esac

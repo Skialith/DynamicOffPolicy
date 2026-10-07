@@ -31,12 +31,11 @@ from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.trainer.ppo.staleness_metrics import StalenessMetricAccumulator
 from verl.trainer.ppo.full_vocab_kl import (
-    adamw_parameter_updates,
-    full_vocabulary_jvp_frozen_geometry,
+    # Historical JVP helpers: adamw_parameter_updates, full_vocabulary_jvp_frozen_geometry.
     full_vocabulary_kl,
     preserve_rng_state,
     score_context_row,
-    score_context_row_parameter_jvp,
+    # Historical helper: score_context_row_parameter_jvp (commented out at its definition).
 )
 from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.device import get_device_id, get_device_name
@@ -87,8 +86,9 @@ class DataParallelPPOActor(BasePPOActor):
         self.full_kl_hvp_measurement = self.config.get("full_kl_hvp_measurement", False)
         if self.full_kl_hvp_measurement and (not self.full_kl_measurement or self.full_kl_jvp_measurement):
             raise ValueError("Exact HVP requires full-KL and cannot run alongside parameter JVP")
-        if self.full_kl_jvp_measurement and (not self.full_kl_measurement or not self.full_kl_actor_measurement):
-            raise ValueError("Parameter-JVP measurement requires full-KL actor forwards")
+        # Retain the old config key so old recipes fail explicitly instead of silently enabling it.
+        if self.full_kl_jvp_measurement:
+            raise ValueError("Legacy-FSDP functional parameter JVP is paused; retained only as commented history")
         # FSDP invokes parameter collectives for every forward. Dynamic batches
         # therefore need the same number of micro-batches on every DP rank, even
         # when the locally generated response lengths differ.
@@ -447,73 +447,77 @@ class DataParallelPPOActor(BasePPOActor):
         vocab_size = self.actor_module.config.vocab_size
         return torch.cat(outputs) if outputs else torch.empty((0, vocab_size), dtype=torch.float32)
 
-    @torch.no_grad()
-    def _capture_full_kl_jvp_anchor(self):
-        if not isinstance(self.actor_module, FSDP):
-            raise TypeError("Parameter-JVP measurement currently supports legacy FSDP only")
-        return {
-            name: parameter.detach().to(device="cpu", copy=True)
-            for name, parameter in self.actor_module.named_parameters()
-        }
+    # HISTORICAL ONLY (2026-10-07): initial functional parameter-JVP design inside legacy FSDP; paused.
+    # @torch.no_grad()
+    # def _capture_full_kl_jvp_anchor(self):
+    #     if not isinstance(self.actor_module, FSDP):
+    #         raise TypeError("Parameter-JVP measurement currently supports legacy FSDP only")
+    #     return {
+    #         name: parameter.detach().to(device="cpu", copy=True)
+    #         for name, parameter in self.actor_module.named_parameters()
+    #     }
 
-    def _score_full_kl_jvp_direction(self, data, anchor_parameters, tangents):
-        selected = torch.where((data.batch["kl_positions"] >= 0).any(-1))[0].tolist()
-        count = torch.tensor(len(selected), device=get_device_id(), dtype=torch.long)
-        torch.distributed.all_reduce(count, op=torch.distributed.ReduceOp.MAX, group=self.dynamic_batch_dp_group)
-        buffers = dict(self.actor_module.named_buffers())
-        was_training = self.actor_module.training
-        anchor_outputs, tangent_outputs = [], []
-        try:
-            with preserve_rng_state([get_device_id()]), torch.autocast(
-                device_type=self.device_name, dtype=torch.bfloat16
-            ):
-                self.actor_module.eval()
-                for index in range(int(count.item())):
-                    row = data.batch[selected[index] if index < len(selected) else 0].to("cpu")
-                    anchor, tangent = score_context_row_parameter_jvp(
-                        self.actor_module, row, get_device_id(), anchor_parameters, tangents, buffers
-                    )
-                    if index < len(selected):
-                        anchor_outputs.append(anchor)
-                        tangent_outputs.append(tangent)
-        finally:
-            self.actor_module.train(was_training)
-        vocab_size = self.actor_module.config.vocab_size
-        empty = torch.empty((0, vocab_size), dtype=torch.float32)
-        return (
-            torch.cat(anchor_outputs) if anchor_outputs else empty,
-            torch.cat(tangent_outputs) if tangent_outputs else empty,
-        )
+    # HISTORICAL ONLY (2026-10-07): initial functional parameter-JVP design inside legacy FSDP; paused.
+    # def _score_full_kl_jvp_direction(self, data, anchor_parameters, tangents):
+    #     selected = torch.where((data.batch["kl_positions"] >= 0).any(-1))[0].tolist()
+    #     count = torch.tensor(len(selected), device=get_device_id(), dtype=torch.long)
+    #     torch.distributed.all_reduce(count, op=torch.distributed.ReduceOp.MAX, group=self.dynamic_batch_dp_group)
+    #     buffers = dict(self.actor_module.named_buffers())
+    #     was_training = self.actor_module.training
+    #     anchor_outputs, tangent_outputs = [], []
+    #     try:
+    #         with preserve_rng_state([get_device_id()]), torch.autocast(
+    #             device_type=self.device_name, dtype=torch.bfloat16
+    #         ):
+    #             self.actor_module.eval()
+    #             for index in range(int(count.item())):
+    #                 row = data.batch[selected[index] if index < len(selected) else 0].to("cpu")
+    #                 anchor, tangent = score_context_row_parameter_jvp(
+    #                     self.actor_module, row, get_device_id(), anchor_parameters, tangents, buffers
+    #                 )
+    #                 if index < len(selected):
+    #                     anchor_outputs.append(anchor)
+    #                     tangent_outputs.append(tangent)
+    #     finally:
+    #         self.actor_module.train(was_training)
+    #     vocab_size = self.actor_module.config.vocab_size
+    #     empty = torch.empty((0, vocab_size), dtype=torch.float32)
+    #     return (
+    #         torch.cat(anchor_outputs) if anchor_outputs else empty,
+    #         torch.cat(tangent_outputs) if tangent_outputs else empty,
+    #     )
 
-    def _measure_full_kl_parameter_jvp(self, data, anchor_cpu, parameter_updates):
-        current_parameters = dict(self.actor_module.named_parameters())
-        if current_parameters.keys() != anchor_cpu.keys():
-            raise RuntimeError("FSDP parameter names changed after capturing the JVP anchor")
-        anchor_parameters = {
-            name: anchor_cpu[name].to(parameter.device)
-            for name, parameter in current_parameters.items()
-        }
-        update_tangents = {
-            name: parameter_updates.get(id(parameter), torch.zeros_like(parameter))
-            for name, parameter in current_parameters.items()
-        }
-        cumulative_tangents = {
-            name: parameter.detach() - anchor_parameters[name] - update_tangents[name]
-            for name, parameter in current_parameters.items()
-        }
-        jvp_anchor, cumulative_jvp = self._score_full_kl_jvp_direction(
-            data, anchor_parameters, cumulative_tangents
-        )
-        del cumulative_tangents
-        repeated_anchor, step_jvp = self._score_full_kl_jvp_direction(
-            data, anchor_parameters, update_tangents
-        )
-        anchor_repeat_error = full_vocabulary_kl(jvp_anchor, repeated_anchor)
-        geometry = full_vocabulary_jvp_frozen_geometry(jvp_anchor, cumulative_jvp, step_jvp)
-        del anchor_parameters, update_tangents, cumulative_jvp, step_jvp, repeated_anchor
-        return jvp_anchor, geometry, anchor_repeat_error
+    # HISTORICAL ONLY (2026-10-07): initial functional parameter-JVP design inside legacy FSDP; paused.
+    # def _measure_full_kl_parameter_jvp(self, data, anchor_cpu, parameter_updates):
+    #     current_parameters = dict(self.actor_module.named_parameters())
+    #     if current_parameters.keys() != anchor_cpu.keys():
+    #         raise RuntimeError("FSDP parameter names changed after capturing the JVP anchor")
+    #     anchor_parameters = {
+    #         name: anchor_cpu[name].to(parameter.device)
+    #         for name, parameter in current_parameters.items()
+    #     }
+    #     update_tangents = {
+    #         name: parameter_updates.get(id(parameter), torch.zeros_like(parameter))
+    #         for name, parameter in current_parameters.items()
+    #     }
+    #     cumulative_tangents = {
+    #         name: parameter.detach() - anchor_parameters[name] - update_tangents[name]
+    #         for name, parameter in current_parameters.items()
+    #     }
+    #     jvp_anchor, cumulative_jvp = self._score_full_kl_jvp_direction(
+    #         data, anchor_parameters, cumulative_tangents
+    #     )
+    #     del cumulative_tangents
+    #     repeated_anchor, step_jvp = self._score_full_kl_jvp_direction(
+    #         data, anchor_parameters, update_tangents
+    #     )
+    #     anchor_repeat_error = full_vocabulary_kl(jvp_anchor, repeated_anchor)
+    #     geometry = full_vocabulary_jvp_frozen_geometry(jvp_anchor, cumulative_jvp, step_jvp)
+    #     del anchor_parameters, update_tangents, cumulative_jvp, step_jvp, repeated_anchor
+    #     return jvp_anchor, geometry, anchor_repeat_error
 
     def _reduce_full_kl(self, previous, anchor, current, weights, jvp_measurement=None):
+        # Optional JVP fields remain for historical numerical checks; the online caller passes None.
         adjacent = full_vocabulary_kl(previous, current)
         cumulative = full_vocabulary_kl(anchor, current)
         previous_cumulative = full_vocabulary_kl(anchor, previous)
@@ -566,11 +570,12 @@ class DataParallelPPOActor(BasePPOActor):
             })
         return result
 
-    def _measure_adamw_parameter_updates(self, lrs_used):
-        updates = adamw_parameter_updates(self.actor_optimizer, lrs_used)
-        squared_norm = sum(update.double().square().sum() for update in updates.values())
-        torch.distributed.all_reduce(squared_norm, group=self.dynamic_batch_dp_group)
-        return squared_norm.sqrt(), updates
+    # HISTORICAL ONLY (2026-10-07): initial functional parameter-JVP design inside legacy FSDP; paused.
+    # def _measure_adamw_parameter_updates(self, lrs_used):
+    #     updates = adamw_parameter_updates(self.actor_optimizer, lrs_used)
+    #     squared_norm = sum(update.double().square().sum() for update in updates.values())
+    #     torch.distributed.all_reduce(squared_norm, group=self.dynamic_batch_dp_group)
+    #     return squared_norm.sqrt(), updates
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -712,8 +717,7 @@ class DataParallelPPOActor(BasePPOActor):
         if self.full_kl_measurement:
             if not self.update_scheduler:
                 raise ValueError("Full-KL experiment requires optimizer-update scheduler counting")
-            if self.full_kl_jvp_measurement and self.actor_optimizer is None:
-                raise ValueError("Parameter-JVP measurement requires an actor optimizer")
+            # Historical JVP optimizer prerequisite is inactive with the paused route.
             import time
 
             if self.full_kl_actor_measurement:
@@ -723,9 +727,10 @@ class DataParallelPPOActor(BasePPOActor):
                 ])
                 kl_anchor = self._score_full_kl(kl_data)
                 kl_previous = kl_anchor
-                jvp_anchor_parameters = (
-                    self._capture_full_kl_jvp_anchor() if self.full_kl_jvp_measurement else None
-                )
+                # Historical online-JVP anchor capture (paused):
+                # jvp_anchor_parameters = (
+                #     self._capture_full_kl_jvp_anchor() if self.full_kl_jvp_measurement else None
+                # )
                 kl_weights = kl_data.batch["kl_weights"][kl_data.batch["kl_positions"] >= 0].double().cpu()
                 kl_self = 0.0
                 if self.config.full_kl_self_check and optimizer_step_start == 0:
@@ -987,18 +992,18 @@ class DataParallelPPOActor(BasePPOActor):
                     update_squared = update_squared.to(get_device_id())
                     torch.distributed.all_reduce(update_squared, group=self.dynamic_batch_dp_group)
                     actual_update_norm = update_squared.sqrt().item()
-                if self.full_kl_jvp_measurement:
-                    jvp_start_time = time.perf_counter()
-                    update_norm, parameter_updates = self._measure_adamw_parameter_updates(lrs_used)
-                    jvp_measurement = self._measure_full_kl_parameter_jvp(
-                        kl_data, jvp_anchor_parameters, parameter_updates
-                    )
-                    del parameter_updates
-                    jvp_seconds = time.perf_counter() - jvp_start_time
-                else:
-                    update_norm = None
-                    jvp_measurement = None
-                    jvp_seconds = None
+                # Historical online functional parameter JVP (paused):
+                # if self.full_kl_jvp_measurement:
+                #     jvp_start_time = time.perf_counter()
+                #     update_norm, parameter_updates = self._measure_adamw_parameter_updates(lrs_used)
+                #     jvp_measurement = self._measure_full_kl_parameter_jvp(
+                #         kl_data, jvp_anchor_parameters, parameter_updates
+                #     )
+                #     del parameter_updates
+                #     jvp_seconds = time.perf_counter() - jvp_start_time
+                update_norm = None
+                jvp_measurement = None
+                jvp_seconds = None
                 if self.full_kl_measurement:
                     kl_metrics = {}
                     if self.full_kl_actor_measurement:
