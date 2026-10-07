@@ -70,3 +70,10 @@ verl-staleness-code.zip
 !/tests/workers/actor/full_kl_fsdp_probe.py
 !/tests/workers/actor/test_training_fisher.py
 !/tests/workers/actor/test_exact_kl_hvp.py
+
+# Local research archive lives in its own repository
+/papers/
+/experiments/scripts/
+experiments/**/scripts/plot_*.py
+experiments/**/scripts/analyze*.py
+experiments/**/scripts/summarize_*.py
