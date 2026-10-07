@@ -235,7 +235,11 @@ Ray/vLLM GPU resource probe。
 ssh scyb980\@NMCC-N46H1\@ssh.paracloud.com -p 2222
 ```
 
-集群仓库：`/data/run01/scyb980/cyt/src/verl-staleness`。
+GitHub 主仓库：`Skialith/DynamicOffPolicy`；集群正式 Git 工作目录：
+`/data/run01/scyb980/cyt/src/DynamicOffPolicy`。共享 assets 和环境仍在
+`/data/run01/scyb980/cyt/src/verl-staleness`，由正式目录的忽略符号链接复用。
+已有作业继续使用原部署目录；更新代码前核对工作区和使用该目录的作业，后续提交优先
+使用正式 Git 目录。同步流程见[项目 README](README.md#本地github-与集群)。
 
 - 统一通过 `examples/dynamic_staleness/submit_slurm.sh` 提交到 `gpu_a800`。4 卡
   `sis_offload` 已验证；单个 8 卡训练任务需独立真实 probe，两组各 4 卡并行不等于

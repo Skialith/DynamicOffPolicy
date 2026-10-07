@@ -216,13 +216,15 @@ def test_trainer_context_serialization_and_per_update_records():
         "position_ids": torch.arange(4).expand_as(ids), "responses": ids[:, -2:],
         "response_mask": torch.ones((8, 2)),
     }, non_tensors={"uid": np.array([str(i // 2) for i in range(8)], dtype=object)})
+    actor_config = {
+        "full_kl_num_prompts": 64, "full_kl_positions_per_response": 8, "full_kl_seed": 10,
+    }
     with tempfile.TemporaryDirectory(prefix="full-kl-test-") as output:
         trainer = SimpleNamespace(
             optimizer_steps=0, global_steps=1, _optimizer_updates_per_rollout=lambda: 4,
             config=SimpleNamespace(
-                actor_rollout_ref=SimpleNamespace(actor=SimpleNamespace(
-                    full_kl_num_prompts=64, full_kl_positions_per_response=8, full_kl_seed=10,
-                )), trainer=SimpleNamespace(default_local_dir=output, experiment_name="test"),
+                actor_rollout_ref=SimpleNamespace(actor=SimpleNamespace(**actor_config, get=actor_config.get)),
+                trainer=SimpleNamespace(default_local_dir=output, experiment_name="test"),
                 data=SimpleNamespace(seed=1),
             ),
         )
