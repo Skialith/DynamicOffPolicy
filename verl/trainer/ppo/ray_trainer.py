@@ -382,8 +382,6 @@ class RayPPOTrainer:
     def _log_full_kl_by_update(logger, records):
         fields = (
             "adjacent_kl", "cumulative_kl", "grad_norm", "update_norm", "lr_used", "policy_age",
-            "rho_eff", "frozen_fisher_fd_cosine", "kl_three_point_error",
-            "frozen_fisher_fd_closure_error",
             "frozen_fisher_jvp_cosine", "frozen_fisher_jvp_residual_increment",
             "frozen_fisher_jvp_reconstruction_error", "jvp_anchor_functional_kl",
             "jvp_seconds",

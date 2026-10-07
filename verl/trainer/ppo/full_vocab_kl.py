@@ -78,44 +78,6 @@ def full_vocabulary_kl(log_p, log_q, chunk_positions=8):
     return torch.cat(result) if result else torch.empty(0, dtype=torch.float64, device=log_p.device)
 
 
-def full_vocabulary_frozen_geometry(log_anchor, log_previous, log_current, chunk_positions=8):
-    """Per-context KL cross term and frozen-anchor finite-difference Fisher geometry.
-
-    The KL cross term is exact.  The Fisher quantities use centered finite log-probability
-    differences under the anchor distribution; they approach the parameter-space Fisher
-    quadratic forms when all policies are local to the anchor.
-    """
-    if log_anchor.shape != log_previous.shape or log_anchor.shape != log_current.shape:
-        raise ValueError("Frozen geometry requires aligned policy scores")
-    if log_anchor.ndim != 2:
-        raise ValueError("Frozen geometry requires [contexts, vocabulary] policy scores")
-    outputs = []
-    for start in range(0, len(log_anchor), chunk_positions):
-        anchor = torch.log_softmax(log_anchor[start:start + chunk_positions].double(), dim=-1)
-        previous = torch.log_softmax(log_previous[start:start + chunk_positions].double(), dim=-1)
-        current = torch.log_softmax(log_current[start:start + chunk_positions].double(), dim=-1)
-        p_anchor, p_previous = anchor.exp(), previous.exp()
-
-        cumulative = previous - anchor
-        step = current - previous
-        cumulative -= (p_anchor * cumulative).sum(-1, keepdim=True)
-        step -= (p_anchor * step).sum(-1, keepdim=True)
-        total = cumulative + step
-        outputs.append(torch.stack([
-            ((p_anchor - p_previous) * (previous - current)).sum(-1),
-            0.5 * (p_anchor * cumulative.square()).sum(-1),
-            0.5 * (p_anchor * step.square()).sum(-1),
-            0.5 * (p_anchor * total.square()).sum(-1),
-            (p_anchor * cumulative * step).sum(-1),
-        ], dim=-1))
-    if not outputs:
-        return torch.empty((0, 5), dtype=torch.float64, device=log_anchor.device)
-    result = torch.cat(outputs)
-    if not torch.isfinite(result).all():
-        raise FloatingPointError("Invalid frozen-anchor geometry")
-    return result
-
-
 def full_vocabulary_jvp_frozen_geometry(log_anchor, cumulative_logits_jvp, step_logits_jvp, chunk_positions=8):
     """Frozen-anchor Fisher geometry from exact parameter-to-logit JVPs.
 
@@ -150,49 +112,6 @@ def full_vocabulary_jvp_frozen_geometry(log_anchor, cumulative_logits_jvp, step_
     return result
 
 
-def adamw_update_squared_norm(optimizer, lrs_used, chunk_size=16_777_216):
-    """Reconstruct the local squared parameter displacement after a torch AdamW step.
-
-    This avoids storing a second model copy.  `lrs_used` must contain the learning rate
-    applied by the just-completed step because the scheduler may already have advanced.
-    """
-    if not isinstance(optimizer, torch.optim.AdamW):
-        raise TypeError("Update-norm reconstruction currently supports torch.optim.AdamW only")
-    if len(lrs_used) != len(optimizer.param_groups):
-        raise ValueError("One applied learning rate is required for each optimizer group")
-    squared_norm = None
-    for group, lr_used in zip(optimizer.param_groups, lrs_used):
-        if group.get("differentiable", False) or group.get("capturable", False):
-            raise ValueError("Update-norm reconstruction requires ordinary non-capturable AdamW")
-        beta1, beta2 = group["betas"]
-        weight_decay, eps = group["weight_decay"], group["eps"]
-        decay = 1.0 - float(lr_used) * weight_decay
-        if decay <= 0:
-            raise ValueError("AdamW multiplicative decay must be positive")
-        for parameter in group["params"]:
-            if parameter.grad is None:
-                continue
-            state = optimizer.state[parameter]
-            step_number = int(state["step"].item())
-            exp_avg = state["exp_avg"].detach().reshape(-1)
-            variance = state["max_exp_avg_sq"] if group["amsgrad"] else state["exp_avg_sq"]
-            variance = variance.detach().reshape(-1)
-            parameter_after = parameter.detach().reshape(-1)
-            bias_correction1 = 1.0 - beta1 ** step_number
-            bias_correction2_sqrt = math.sqrt(1.0 - beta2 ** step_number)
-            step_size = float(lr_used) / bias_correction1
-            for start in range(0, parameter_after.numel(), chunk_size):
-                stop = min(start + chunk_size, parameter_after.numel())
-                denominator = variance[start:stop].sqrt() / bias_correction2_sqrt + eps
-                adam_delta = step_size * exp_avg[start:stop] / denominator
-                update = (-float(lr_used) * weight_decay * parameter_after[start:stop] - adam_delta) / decay
-                value = update.double().square().sum()
-                squared_norm = value if squared_norm is None else squared_norm + value
-    if squared_norm is None:
-        raise ValueError("AdamW step had no parameters with gradients")
-    return squared_norm
-
-
 def actual_update_squared_norm(parameters, before, chunk_size=1 << 20):
     """Norm of stored-parameter differences, not an AdamW reconstruction.
 
@@ -217,8 +136,7 @@ def actual_update_squared_norm(parameters, before, chunk_size=1 << 20):
 def adamw_parameter_updates(optimizer, lrs_used, chunk_size=16_777_216):
     """Reconstruct each local AdamW parameter displacement after a completed step.
 
-    This is intentionally separate from the low-memory norm-only path: callers
-    enabling parameter JVPs need the actual local sharded tangent tensors.
+    Callers enabling parameter JVPs need the local sharded tangent tensors.
     """
     if not isinstance(optimizer, torch.optim.AdamW):
         raise TypeError("Update reconstruction currently supports torch.optim.AdamW only")

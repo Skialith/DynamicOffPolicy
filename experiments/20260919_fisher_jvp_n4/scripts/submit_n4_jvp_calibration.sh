@@ -10,7 +10,7 @@ unset RUN_CONFIG_TAG LOGGER_EXPERIMENT_NAME
 export PARTITION=gpu_a800 N_GPUS=4 GPU_PROFILE=a800
 export RUNTIME_PROFILE=sis_offload ROLLOUT_TP_SIZE=2
 export PYTHON_BIN="$PWD/.venv/bin/python"
-export FULL_KL_EXPERIMENT=1 FULL_KL_GEOMETRY=1 FULL_KL_JVP=1 DRY_RUN=0 SMOKE=0 SEED=1
+export FULL_KL_EXPERIMENT=1 FULL_KL_JVP=1 DRY_RUN=0 SMOKE=0 SEED=1
 export MINI_PROMPT_BATCH=256 RESPONSES_PER_PROMPT=8
 export LEARNING_RATE=1e-6 LR_WARMUP_STEPS=0
 export MAX_PROMPT_LENGTH=1024 MAX_RESPONSE_LENGTH=3072 KL_LOSS_COEF=0.001
@@ -28,7 +28,7 @@ export SLURM_DEPENDENCY="afterok:${JVP_COMPAT_JOB}"
 probe_output=$(
     KL_NUM_PROMPTS=8 TIME_LIMIT=16:00:00 JOB_NAME=fisher-jvp-probe-n4 \
     EXPERIMENT_NAME=fisher_jvp_probe_n4_u0004 \
-    bash examples/dynamic_staleness/submit_slurm.sh geometry_probe
+    bash examples/dynamic_staleness/submit_slurm.sh jvp_probe
 )
 echo "${probe_output}"
 probe_job=$(awk '/submitted job/{print $3}' <<<"${probe_output}")

@@ -98,7 +98,6 @@ MAX_ACTOR_CKPT_TO_KEEP=${MAX_ACTOR_CKPT_TO_KEEP:-1}
 SMOKE=${SMOKE:-0}
 DRY_RUN=${DRY_RUN:-0}
 FULL_KL_EXPERIMENT=${FULL_KL_EXPERIMENT:-0}
-FULL_KL_GEOMETRY=${FULL_KL_GEOMETRY:-0}
 FULL_KL_JVP=${FULL_KL_JVP:-0}
 FULL_KL_HVP=${FULL_KL_HVP:-0}
 FULL_KL_ACTOR_MEASUREMENT=${FULL_KL_ACTOR_MEASUREMENT:-1}
@@ -115,20 +114,12 @@ if [[ "${FULL_KL_HVP}" == 1 ]] && [[ "${FULL_KL_EXPERIMENT}" != 1 || "${FULL_KL_
     echo "Exact HVP requires full-KL, no JVP, four GPUs and sis_offload" >&2
     exit 2
 fi
-if [[ "${FULL_KL_GEOMETRY}" != 0 && "${FULL_KL_GEOMETRY}" != 1 ]]; then
-    echo "FULL_KL_GEOMETRY must be 0 or 1, got: ${FULL_KL_GEOMETRY}" >&2
-    exit 2
-fi
-if [[ "${FULL_KL_GEOMETRY}" == 1 && "${FULL_KL_EXPERIMENT}" != 1 ]]; then
-    echo "FULL_KL_GEOMETRY=1 requires FULL_KL_EXPERIMENT=1" >&2
-    exit 2
-fi
 if [[ "${FULL_KL_JVP}" != 0 && "${FULL_KL_JVP}" != 1 ]]; then
     echo "FULL_KL_JVP must be 0 or 1, got: ${FULL_KL_JVP}" >&2
     exit 2
 fi
-if [[ "${FULL_KL_JVP}" == 1 && "${FULL_KL_GEOMETRY}" != 1 ]]; then
-    echo "FULL_KL_JVP=1 requires FULL_KL_GEOMETRY=1" >&2
+if [[ "${FULL_KL_JVP}" == 1 ]] && [[ "${FULL_KL_EXPERIMENT}" != 1 || "${FULL_KL_ACTOR_MEASUREMENT}" != 1 ]]; then
+    echo "FULL_KL_JVP=1 requires full-KL actor forwards" >&2
     exit 2
 fi
 if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
@@ -408,13 +399,9 @@ overrides=(
 )
 
 if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
-    FULL_KL_GEOMETRY_BOOL=false
     FULL_KL_ACTOR_BOOL=false
     if [[ "${FULL_KL_ACTOR_MEASUREMENT}" == 1 ]]; then
         FULL_KL_ACTOR_BOOL=true
-    fi
-    if [[ "${FULL_KL_GEOMETRY}" == 1 ]]; then
-        FULL_KL_GEOMETRY_BOOL=true
     fi
     FULL_KL_JVP_BOOL=false
     if [[ "${FULL_KL_JVP}" == 1 ]]; then
@@ -423,7 +410,6 @@ if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
     overrides+=(
         "actor_rollout_ref.actor.full_kl_measurement=true"
         "actor_rollout_ref.actor.full_kl_actor_measurement=${FULL_KL_ACTOR_BOOL}"
-        "actor_rollout_ref.actor.full_kl_geometry_measurement=${FULL_KL_GEOMETRY_BOOL}"
         "actor_rollout_ref.actor.full_kl_jvp_measurement=${FULL_KL_JVP_BOOL}"
         "actor_rollout_ref.actor.full_kl_num_prompts=${KL_NUM_PROMPTS}"
         "actor_rollout_ref.actor.full_kl_positions_per_response=${KL_POSITIONS_PER_RESPONSE}"

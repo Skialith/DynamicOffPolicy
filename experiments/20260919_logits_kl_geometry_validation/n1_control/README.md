@@ -19,7 +19,7 @@ MATH500 sampled Avg@1 在 update 0/32/64/96 评测。
 
 | 项目 | 内容 |
 | --- | --- |
-| 提交脚本 | [`scripts/submit_n1_control.sh`](scripts/submit_n1_control.sh) |
+| 历史提交脚本 | `scripts/submit_n1_control.sh`（已退役，见[取回方式](../README.md#历史脚本复现)） |
 | Slurm job | 167543 |
 | 运行时间 | 2026-09-21 23:15:10—2026-09-23 00:07:20 |
 | 状态 | `COMPLETED / 0:0`；2026-09-23 已核验 |
@@ -31,5 +31,5 @@ MATH500 sampled Avg@1 在 update 0/32/64/96 评测。
 - [确认后的分析记录](docs/EXPERIMENT_RECORD.md)
 - 派生表：`tables/`
 - 图表：`figures/`
-- N=1 专项边界检查脚本：[`scripts/analyze_n1_control.py`](scripts/analyze_n1_control.py)
-- 四组统一分析脚本：[`../scripts/analyze_kl_approximation.py`](../scripts/analyze_kl_approximation.py)
+- 历史边界检查脚本：`scripts/analyze_n1_control.py`
+- 历史统一脚本：`../scripts/analyze_kl_approximation.py`；均按[历史脚本复现](../README.md#历史脚本复现)取回

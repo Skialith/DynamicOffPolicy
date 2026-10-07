@@ -41,7 +41,9 @@
 
 ## 复现
 
-[`../../scripts/analyze_kl_approximation.py`](../../scripts/analyze_kl_approximation.py)从
+历史脚本 `../../scripts/analyze_kl_approximation.py` 从
 `raw/job167220/kl_updates.jsonl` 只读生成 [`汇总 JSON`](../tables/kl_approximation_summary.json)、
 [`逐 update 明细`](../tables/kl_approximation_per_update.csv)和
 [`逐 age 汇总`](../tables/kl_approximation_by_age.csv)。
+
+脚本已退役，按[历史脚本复现](../../README.md#历史脚本复现)从提交 `211675f` 取回。

@@ -110,9 +110,6 @@ full_kl_measurement: false
 # Keep prefix selection/logging while optionally skipping BF16 actor KL forwards
 full_kl_actor_measurement: true
 
-# Log actual AdamW update norm and frozen-anchor finite-difference Fisher geometry
-full_kl_geometry_measurement: false
-
 # Strict parameter-space frozen-Fisher geometry from online parameter JVPs
 full_kl_jvp_measurement: false
 

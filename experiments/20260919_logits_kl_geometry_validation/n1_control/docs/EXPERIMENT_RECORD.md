@@ -36,7 +36,7 @@ KL 预测或任何 N 的策略优劣。
 
 ## 复现
 
-统一脚本 [`../../scripts/analyze_kl_approximation.py`](../../scripts/analyze_kl_approximation.py)
+历史统一脚本 `../../scripts/analyze_kl_approximation.py`
 从 `raw/job167543/kl_updates.jsonl` 只读生成：
 
 - [`kl_approximation_summary.json`](../tables/kl_approximation_summary.json)
@@ -45,4 +45,5 @@ KL 预测或任何 N 的策略优劣。
 
 N=1 恒等式的独立交叉检查仍保存在
 [`n1_control_validation.json`](../tables/n1_control_validation.json)，由
-[`analyze_n1_control.py`](../scripts/analyze_n1_control.py)生成。
+`analyze_n1_control.py`生成。脚本已退役，按[历史脚本复现](../../README.md#历史脚本复现)
+从提交 `211675f` 取回。

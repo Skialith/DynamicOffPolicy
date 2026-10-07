@@ -22,7 +22,8 @@ probe 使用相同 N 和 runtime，只运行 1 rollout / 4 updates。
 | 工程 probe | 166277 | 2026-09-20 01:39:35—02:28:20 | `COMPLETED / 0:0` |
 | 正式运行 | 166278 | 2026-09-20 02:28:39—23:07:50 | `COMPLETED / 0:0` |
 
-提交脚本为 [`scripts/submit_n4_fisher_alignment.sh`](scripts/submit_n4_fisher_alignment.sh)。
+历史提交脚本为 `scripts/submit_n4_fisher_alignment.sh`，已退役；取回方式见
+[历史脚本复现](../README.md#历史脚本复现)。
 截至 2026-09-23，两项状态及正式运行 96 条逐 update 记录均已核验。
 
 ## 产物
@@ -32,6 +33,5 @@ probe 使用相同 N 和 runtime，只运行 1 rollout / 4 updates。
 - [确认后的分析记录](docs/EXPERIMENT_RECORD.md)
 - 派生表：`tables/`
 - 图表：`figures/`
-- N=4 补充分析脚本：[`scripts/analyze_results.py`](scripts/analyze_results.py) 与
-  [`scripts/plot_formula_validation.py`](scripts/plot_formula_validation.py)
-- 四组统一分析脚本：[`../scripts/analyze_kl_approximation.py`](../scripts/analyze_kl_approximation.py)
+- 历史补充脚本：`scripts/analyze_results.py`、`scripts/plot_formula_validation.py`
+- 历史统一脚本：`../scripts/analyze_kl_approximation.py`；均按[历史脚本复现](../README.md#历史脚本复现)取回

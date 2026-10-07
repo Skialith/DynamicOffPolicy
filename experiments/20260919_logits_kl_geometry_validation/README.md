@@ -1,5 +1,9 @@
 # 2026-09-19：logits 几何 KL 校验实验族
 
+本路线于 2026-10-07 否决并退役：既然已经获得更新后策略输出，就直接计算全词表
+KL，有限 logits/log-prob 差分不再作为 KL、Fisher 长度或对齐量的代理。以下内容记录
+历史实验；原始产物、已确认表格和图表保持原样，运行实现、配置开关和专用脚本已删除。
+
 ## 研究任务与目录关系
 
 本实验族在每轮固定训练侧 anchor 和真实 rollout 前缀上，比较精确全词表 KL 与
@@ -51,7 +55,7 @@ K_a       = KL(p₀ || p₊)                         # cumulative_kl
 C_a       = K_a - K_(a-1) - d_a                 # kl_three_point_cross
 ```
 
-`C_a` 是精确的 KL 三点交叉项；代码也直接用
+`C_a` 是精确的 KL 三点交叉项；当时的代码也直接用
 `Σ_v (p₀(v)-p₋(v))(log p₋(v)-log p₊(v))` 计算它并检查恒等式。若 `C_a<0`，
 这一步与此前累计变化在 KL 意义下发生抵消，所以累计 KL 小于两段 KL 的直接相加。
 
@@ -94,8 +98,17 @@ age=1 时 `p₋=p₀`，没有既有累计方向，所以第 3、4 项记为不�
 
 ## 公共产物
 
-- [统一分析脚本](scripts/analyze_kl_approximation.py)：从四个子实验的 `raw/` 只读，分别
-  写入各自的 `tables/` 和 `figures/`
-- [N=16/32 提交脚本](scripts/submit_n16_n32_geometry.sh)
 - [统一远端同步脚本](../scripts/sync_remote_raw_artifacts.sh)
 - [返回实验索引](../README.md)
+
+## 历史脚本复现
+
+专用提交和分析脚本已从当前代码树删除，可从退役前提交 `211675f` 取回。统一分析
+入口当时为 `scripts/analyze_kl_approximation.py`，N=4 补充图入口为
+`n4_main/scripts/plot_formula_validation.py`。在独立目录解出历史实验族，再放入原有
+`raw/` 输入即可复现已有分析；当前配置不再接受旧的 `FULL_KL_GEOMETRY` 开关。
+
+```bash
+mkdir -p /tmp/logits-kl-history
+git archive 211675f experiments/20260919_logits_kl_geometry_validation | tar -x -C /tmp/logits-kl-history
+```

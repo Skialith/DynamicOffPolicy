@@ -47,9 +47,10 @@ KL 不能把相邻 KL 直接相加”提供了直接的有限差分几何证据�
 
 ## 复现与边界
 
-统一分析脚本 [`../../scripts/analyze_kl_approximation.py`](../../scripts/analyze_kl_approximation.py)
+历史统一分析脚本 `../../scripts/analyze_kl_approximation.py`
 生成 [`汇总 JSON`](../tables/kl_approximation_summary.json)、
 [`逐 update 明细`](../tables/kl_approximation_per_update.csv)和
 [`逐 age 汇总`](../tables/kl_approximation_by_age.csv)。N=4 的补充换算由
-[`analyze_results.py`](../scripts/analyze_results.py)生成。所有结果来自单 seed 已观测轨迹；
+`analyze_results.py`生成。脚本已退役，按[历史脚本复现](../../README.md#历史脚本复现)
+从提交 `211675f` 取回。所有结果来自单 seed 已观测轨迹；
 同一 rollout 内四行共享 anchor 和上下文，不作为 IID 样本解释。

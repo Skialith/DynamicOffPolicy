@@ -32,8 +32,6 @@ from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.trainer.ppo.staleness_metrics import StalenessMetricAccumulator
 from verl.trainer.ppo.full_vocab_kl import (
     adamw_parameter_updates,
-    adamw_update_squared_norm,
-    full_vocabulary_frozen_geometry,
     full_vocabulary_jvp_frozen_geometry,
     full_vocabulary_kl,
     preserve_rng_state,
@@ -85,17 +83,12 @@ class DataParallelPPOActor(BasePPOActor):
         )
         self.full_kl_measurement = self.config.get("full_kl_measurement", False)
         self.full_kl_actor_measurement = self.config.get("full_kl_actor_measurement", True)
-        self.full_kl_geometry_measurement = self.config.get("full_kl_geometry_measurement", False)
         self.full_kl_jvp_measurement = self.config.get("full_kl_jvp_measurement", False)
         self.full_kl_hvp_measurement = self.config.get("full_kl_hvp_measurement", False)
         if self.full_kl_hvp_measurement and (not self.full_kl_measurement or self.full_kl_jvp_measurement):
             raise ValueError("Exact HVP requires full-KL and cannot run alongside parameter JVP")
-        if self.full_kl_geometry_measurement and not self.full_kl_measurement:
-            raise ValueError("Full-KL geometry measurement requires full-KL measurement")
-        if self.full_kl_geometry_measurement and not self.full_kl_actor_measurement:
-            raise ValueError("Full-KL geometry measurement requires actor KL forwards")
-        if self.full_kl_jvp_measurement and not self.full_kl_geometry_measurement:
-            raise ValueError("Parameter-JVP measurement requires full-KL geometry measurement")
+        if self.full_kl_jvp_measurement and (not self.full_kl_measurement or not self.full_kl_actor_measurement):
+            raise ValueError("Parameter-JVP measurement requires full-KL actor forwards")
         # FSDP invokes parameter collectives for every forward. Dynamic batches
         # therefore need the same number of micro-batches on every DP rank, even
         # when the locally generated response lengths differ.
@@ -529,9 +522,6 @@ class DataParallelPPOActor(BasePPOActor):
             (previous_cumulative * weights).sum(), weights.sum(),
             torch.as_tensor(len(weights), dtype=torch.float64),
         ]
-        if self.full_kl_geometry_measurement:
-            geometry = full_vocabulary_frozen_geometry(anchor, previous, current)
-            values.extend((geometry[:, index] * weights).sum() for index in range(geometry.shape[1]))
         if jvp_measurement is not None:
             jvp_anchor, jvp_geometry, anchor_repeat_error = jvp_measurement
             values.append((full_vocabulary_kl(anchor, jvp_anchor) * weights).sum())
@@ -546,30 +536,8 @@ class DataParallelPPOActor(BasePPOActor):
             "previous_cumulative_kl": totals[2].item(),
             "context_count": totals[4].item(), "weight_sum": totals[3].item(),
         }
-        if self.full_kl_geometry_measurement:
-            kl_cross, cumulative_energy, step_energy, current_energy, fisher_cross = totals[5:10].tolist()
-            rho_eff_denominator = 2 * math.sqrt(max(0.0, result["previous_cumulative_kl"] * result["adjacent_kl"]))
-            fisher_denominator = 2 * math.sqrt(max(0.0, cumulative_energy * step_energy))
-            result.update({
-                "kl_three_point_cross": kl_cross,
-                "kl_three_point_error": (
-                    result["cumulative_kl"] - result["previous_cumulative_kl"]
-                    - result["adjacent_kl"] - kl_cross
-                ),
-                "rho_eff": kl_cross / rho_eff_denominator if rho_eff_denominator > 0 else 0.0,
-                "rho_eff_defined": float(rho_eff_denominator > 0),
-                "frozen_fisher_fd_cumulative": cumulative_energy,
-                "frozen_fisher_fd_step": step_energy,
-                "frozen_fisher_fd_current": current_energy,
-                "frozen_fisher_fd_cross": fisher_cross,
-                "frozen_fisher_fd_cosine": fisher_cross / fisher_denominator if fisher_denominator > 0 else 0.0,
-                "frozen_fisher_fd_cosine_defined": float(fisher_denominator > 0),
-                "frozen_fisher_fd_closure_error": (
-                    current_energy - cumulative_energy - step_energy - fisher_cross
-                ),
-            })
         if jvp_measurement is not None:
-            offset = 10
+            offset = 5
             anchor_functional_error, anchor_repeat_error = totals[offset:offset + 2].tolist()
             cumulative_energy, step_energy, current_energy, fisher_cross = totals[offset + 2:offset + 6].tolist()
             fisher_denominator = 2 * math.sqrt(max(0.0, cumulative_energy * step_energy))
@@ -597,11 +565,6 @@ class DataParallelPPOActor(BasePPOActor):
                 ),
             })
         return result
-
-    def _measure_adamw_update_norm(self, lrs_used):
-        squared_norm = adamw_update_squared_norm(self.actor_optimizer, lrs_used)
-        torch.distributed.all_reduce(squared_norm, group=self.dynamic_batch_dp_group)
-        return squared_norm.sqrt()
 
     def _measure_adamw_parameter_updates(self, lrs_used):
         updates = adamw_parameter_updates(self.actor_optimizer, lrs_used)
@@ -749,8 +712,8 @@ class DataParallelPPOActor(BasePPOActor):
         if self.full_kl_measurement:
             if not self.update_scheduler:
                 raise ValueError("Full-KL experiment requires optimizer-update scheduler counting")
-            if self.full_kl_geometry_measurement and self.actor_optimizer is None:
-                raise ValueError("Full-KL geometry measurement requires an actor optimizer")
+            if self.full_kl_jvp_measurement and self.actor_optimizer is None:
+                raise ValueError("Parameter-JVP measurement requires an actor optimizer")
             import time
 
             if self.full_kl_actor_measurement:
@@ -1033,9 +996,7 @@ class DataParallelPPOActor(BasePPOActor):
                     del parameter_updates
                     jvp_seconds = time.perf_counter() - jvp_start_time
                 else:
-                    update_norm = (
-                        self._measure_adamw_update_norm(lrs_used) if self.full_kl_geometry_measurement else None
-                    )
+                    update_norm = None
                     jvp_measurement = None
                     jvp_seconds = None
                 if self.full_kl_measurement:

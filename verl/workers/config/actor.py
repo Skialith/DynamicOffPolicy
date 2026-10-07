@@ -166,7 +166,6 @@ class ActorConfig(BaseConfig):
     log_staleness_metrics: bool = False
     full_kl_measurement: bool = False
     full_kl_actor_measurement: bool = True
-    full_kl_geometry_measurement: bool = False
     full_kl_jvp_measurement: bool = False
     full_kl_hvp_measurement: bool = False
     full_kl_hvp_compute_quadratic: bool = True
