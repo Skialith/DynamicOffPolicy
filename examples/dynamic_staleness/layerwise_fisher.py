@@ -14,6 +14,23 @@ from transformers.models.qwen3.modeling_qwen3 import (
 )
 
 
+class _Decoder(torch.nn.Module):
+    """Keep row tensors on instances, not in a local class's closure cycle."""
+
+    def __init__(self, layer, attention_mask, position_ids, cache_position, position_embeddings):
+        super().__init__()
+        self.layer = layer
+        self.attention_mask = attention_mask
+        self.position_ids = position_ids
+        self.cache_position = cache_position
+        self.position_embeddings = position_embeddings
+
+    def forward(self, value):
+        return self.layer(value, attention_mask=self.attention_mask,
+                          position_ids=self.position_ids, past_key_values=None, use_cache=False,
+                          cache_position=self.cache_position, position_embeddings=self.position_embeddings)
+
+
 def module_jvp(module, value, tangent, directions):
     named = dict(module.named_parameters())
     vectors = {name: directions[id(parameter)] for name, parameter in named.items()}
@@ -78,19 +95,11 @@ def _layerwise_derivative(model, row, anchor, direction, saved_context=None, pro
     with torch.no_grad():
         position_embeddings = model.model.rotary_emb(hidden, position_ids)
 
-    # Wrap fixed positional/mask arguments without changing a layer's parameters.
-    class Decoder(torch.nn.Module):
-        def __init__(self, layer):
-            super().__init__()
-            self.layer = layer
-
-        def forward(self, value):
-            return self.layer(value, attention_mask=masks[self.layer.attention_type],
-                              position_ids=position_ids, past_key_values=None, use_cache=False,
-                              cache_position=cache_position, position_embeddings=position_embeddings)
-
     for index, layer in enumerate(model.model.layers):
-        hidden, tangent = forward(Decoder(layer), hidden, tangent, f"layer_{index}")
+        decoder = _Decoder(layer, masks[layer.attention_type], position_ids,
+                           cache_position, position_embeddings)
+        hidden, tangent = forward(decoder, hidden, tangent, f"layer_{index}")
+    del decoder
     hidden, tangent = forward(model.model.norm, hidden, tangent, "norm")
     selected = row["indices"].to(hidden.device)
     full_hidden_shape = hidden.shape

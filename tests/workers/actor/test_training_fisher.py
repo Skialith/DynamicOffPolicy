@@ -1,8 +1,10 @@
 """CPU checks for the training-to-independent-Fisher integration."""
 
+import gc
 import json
 import tempfile
 import unittest
+import weakref
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -251,6 +253,35 @@ class TrainingFisherTest(unittest.TestCase):
                     self.assertIs(returned, accumulator)
                 for start, reference, value in zip(initial, expected, accumulator):
                     torch.testing.assert_close(value, start + reference, atol=1e-6, rtol=1e-5)
+
+    def test_layerwise_releases_prefix_mask_without_cyclic_gc(self):
+        from examples.dynamic_staleness import layerwise_fisher
+        model = self.tiny_model().eval()
+        row = {"input_ids": torch.tensor([[1, 2, 3, 4]]),
+               "position_ids": torch.arange(4).unsqueeze(0), "indices": torch.tensor([1, 3]),
+               "weights": torch.tensor([0.5, 0.5], dtype=torch.float64)}
+        anchor = measure.selected_logits(model, row).detach().double().log_softmax(-1)
+        direction = [torch.randn_like(parameter) for parameter in model.parameters()]
+        references = []
+        original = layerwise_fisher.create_causal_mask
+        def tracked_mask(*args, **kwargs):
+            mask = original(*args, **kwargs)
+            references.append(weakref.ref(mask))
+            return mask
+        gc.collect()
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            with patch.object(layerwise_fisher, "create_causal_mask", side_effect=tracked_mask):
+                result = layerwise_fisher.layerwise_fisher_product(
+                    model, row, anchor, direction, layer_inputs_cpu_offload=False)
+            del result
+            self.assertTrue(references)
+            self.assertTrue(all(reference() is None for reference in references))
+        finally:
+            if enabled:
+                gc.enable()
+            gc.collect()
 
     def test_synthetic_long_prefix_product_matches_exact_hvp(self):
         torch.manual_seed(41)
