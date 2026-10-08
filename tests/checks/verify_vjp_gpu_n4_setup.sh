@@ -20,7 +20,7 @@ sys.exit(not result.wasSuccessful())
 PY_CPU_CHECK
 echo "vjp_gpu_preflight_cpu_log=${vjp_cpu_log}"
 vjp_cfg=$(mktemp "${TMPDIR}/vjp-gpu-config.XXXXXX.yaml")
-CUDA_VISIBLE_DEVICES= DRY_RUN=1 bash "${SCRIPT_DIR}/run_staleness.sh" anchor > "${vjp_cfg}"
+CUDA_VISIBLE_DEVICES= DRY_RUN=1 bash "${REPO_ROOT}/examples/dynamic_staleness/run_staleness.sh" anchor > "${vjp_cfg}"
 "${PYTHON_BIN}" - "${vjp_cfg}" <<'PY_CONFIG_CHECK'
 from pathlib import Path
 import sys

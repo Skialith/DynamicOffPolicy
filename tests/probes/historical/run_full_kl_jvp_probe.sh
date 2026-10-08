@@ -8,6 +8,7 @@ exit 2
 # set -euo pipefail
 
 # SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../../.." && pwd)
 # : "${PYTHON_BIN:?Set PYTHON_BIN}"
 # : "${OUTPUT_ROOT:?Set OUTPUT_ROOT}"
 
@@ -16,6 +17,6 @@ exit 2
 # export ENABLE_BENCHMARK_EVAL=0 SAVE_FREQ=-1
 # export EXPERIMENT_NAME=${EXPERIMENT_NAME:-fisher_jvp_probe_n4_u0004}
 
-# bash "${SCRIPT_DIR}/run_staleness.sh" anchor "$@"
+# bash "${REPO_ROOT}/examples/dynamic_staleness/run_staleness.sh" anchor "$@"
 # "${PYTHON_BIN}" "${SCRIPT_DIR}/verify_full_kl_jvp.py" \
 #     "${OUTPUT_ROOT}/${EXPERIMENT_NAME}" --updates 4

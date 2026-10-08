@@ -42,7 +42,7 @@ metadata records layer_inputs_cpu_offload and fvp_accumulation=direct_into_total
 
 Run the standalone resource probe with:
 
-    bash examples/dynamic_staleness/submit_fvp_storage_probe.sh
+    bash tests/probes/submit_fvp_storage_probe.sh
 
 It compares the 195937 CPU-input/per-row-result baseline with GPU inputs/direct
 accumulation on the same allocated GPUs. Each mode performs three FVPs over two

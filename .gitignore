@@ -55,7 +55,7 @@ verl-staleness-code.zip
 /verl/**/*.md
 /verl/**/*.rst
 
-# Only the project regression tests are managed here
+# Project regression tests, standalone checks and GPU probes
 /tests/*
 !/tests/trainer/
 !/tests/workers/
@@ -67,9 +67,23 @@ verl-staleness-code.zip
 /tests/workers/*
 !/tests/workers/actor/
 /tests/workers/actor/*
-!/tests/workers/actor/full_kl_fsdp_probe.py
 !/tests/workers/actor/test_training_fisher.py
 !/tests/workers/actor/test_exact_kl_hvp.py
+
+# Keep only source files in the independent check/probe directories
+!/tests/README.md
+!/tests/checks/
+!/tests/probes/
+/tests/checks/*
+!/tests/checks/*.py
+!/tests/checks/*.sh
+/tests/probes/*
+!/tests/probes/*.py
+!/tests/probes/*.sh
+!/tests/probes/historical/
+/tests/probes/historical/*
+!/tests/probes/historical/*.py
+!/tests/probes/historical/*.sh
 
 # Local research archive lives in its own repository
 /papers/

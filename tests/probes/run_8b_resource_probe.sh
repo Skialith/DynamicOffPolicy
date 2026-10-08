@@ -28,4 +28,4 @@ env \
     GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.7}" \
     ROLLOUT_MAX_BATCHED_TOKENS=4096 \
     ROLLOUT_MAX_NUM_SEQS=32 \
-    "${SCRIPT_DIR}/run_staleness.sh" anchor "$@"
+    "${REPO_ROOT}/examples/dynamic_staleness/run_staleness.sh" anchor "$@"

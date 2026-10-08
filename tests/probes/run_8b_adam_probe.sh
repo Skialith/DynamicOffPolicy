@@ -22,4 +22,4 @@ env \
     MAX_PROMPT_LENGTH=1024 \
     MAX_RESPONSE_LENGTH=3072 \
     SAVE_FREQ=-1 \
-    "${SCRIPT_DIR}/run_staleness.sh" anchor "$@"
+    "${REPO_ROOT}/examples/dynamic_staleness/run_staleness.sh" anchor "$@"

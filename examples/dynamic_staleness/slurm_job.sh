@@ -185,27 +185,27 @@ echo "execution_limits=actor_tokens_per_gpu:${ACTOR_MAX_TOKENS_PER_GPU},infer_to
 nvidia-smi -L
 
 if [[ "${FISHER_VJP_N4_PREFLIGHT:-0}" == 1 ]]; then
-    bash "${SCRIPT_DIR}/verify_vjp_gpu_n4_setup.sh"
+    bash "${REPO_ROOT}/tests/checks/verify_vjp_gpu_n4_setup.sh"
 fi
 
 case "${TARGET}" in
     fisher_fvp_probe)
-        exec bash "${SCRIPT_DIR}/run_fvp_storage_probe.sh" "$@"
+        exec bash "${REPO_ROOT}/tests/probes/run_fvp_storage_probe.sh" "$@"
         ;;
     kl_probe)
-        exec bash "${SCRIPT_DIR}/run_full_kl_probe.sh" "$@"
+        exec bash "${REPO_ROOT}/tests/probes/run_full_kl_probe.sh" "$@"
         ;;
     jvp_probe)
-        exec bash "${SCRIPT_DIR}/run_full_kl_jvp_probe.sh" "$@"
+        exec bash "${REPO_ROOT}/tests/probes/historical/run_full_kl_jvp_probe.sh" "$@"
         ;;
     jvp_compat_probe)
-        exec bash "${SCRIPT_DIR}/run_fsdp_parameter_jvp_probe.sh" "$@"
+        exec bash "${REPO_ROOT}/tests/probes/historical/run_fsdp_parameter_jvp_probe.sh" "$@"
         ;;
     fvp_compat_probe)
-        exec bash "${SCRIPT_DIR}/run_fsdp_fisher_vector_product_probe.sh" "$@"
+        exec bash "${REPO_ROOT}/tests/probes/historical/run_fsdp_fisher_vector_product_probe.sh" "$@"
         ;;
     exact_hvp_probe)
-        exec bash "${SCRIPT_DIR}/run_exact_kl_hvp_probe.sh" "$@"
+        exec bash "${REPO_ROOT}/tests/probes/run_exact_kl_hvp_probe.sh" "$@"
         ;;
     smoke)
         exec "${SCRIPT_DIR}/run_smoke.sh" "$@"
@@ -215,20 +215,20 @@ case "${TARGET}" in
         # large optimizer checkpoint. Set SAVE_FREQ to a positive value only
         # after confirming that the shared-storage quota is large enough.
         export SAVE_FREQ=${SAVE_FREQ:--1}
-        exec "${SCRIPT_DIR}/run_8b_resource_probe.sh" "$@"
+        exec "${REPO_ROOT}/tests/probes/run_8b_resource_probe.sh" "$@"
         ;;
     adam_probe)
         # One tiny-batch optimizer step validates sharded Adam-state creation.
         # It deliberately skips eval, checkpointing, and throughput claims.
         export SAVE_FREQ=-1
-        exec "${SCRIPT_DIR}/run_8b_adam_probe.sh" "$@"
+        exec "${REPO_ROOT}/tests/probes/run_8b_adam_probe.sh" "$@"
         ;;
     performance_probe)
         # A full 256-prompt/update outer step. This validates first-Adam memory
         # and throughput for an unverified runtime profile without saving a
         # checkpoint or mixing probe metrics into the formal run directory.
         export SAVE_FREQ=-1
-        exec "${SCRIPT_DIR}/run_8b_performance_probe.sh" "$@"
+        exec "${REPO_ROOT}/tests/probes/run_8b_performance_probe.sh" "$@"
         ;;
     anchor)
         if [[ "${FULL_KL_EXPERIMENT:-0}" == 1 && -n "${KL_PAIR_DIR:-}" ]]; then

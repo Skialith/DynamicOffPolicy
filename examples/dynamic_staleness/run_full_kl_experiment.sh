@@ -10,6 +10,6 @@ export TARGET_OPTIMIZER_STEP=96
 export EXPERIMENT_NAME=full_kl_n${REUSE_N}_u0096
 export OUTPUT_DIR=${OUTPUT_ROOT}/${EXPERIMENT_NAME}
 bash "${SCRIPT_DIR}/run_staleness.sh" anchor "$@"
-"${PYTHON_BIN}" "${SCRIPT_DIR}/verify_full_kl_run.py" "${OUTPUT_DIR}" --n "${REUSE_N}"
+"${PYTHON_BIN}" "${REPO_ROOT}/tests/checks/verify_full_kl_run.py" "${OUTPUT_DIR}" --n "${REUSE_N}"
 "${PYTHON_BIN}" "${SCRIPT_DIR}/finish_full_kl_pair.py" \
     --run "${OUTPUT_DIR}" --pair-dir "${KL_PAIR_DIR}" --n "${REUSE_N}"
