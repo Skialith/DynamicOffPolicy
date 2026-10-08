@@ -173,11 +173,11 @@ class ActorConfig(BaseConfig):
     full_kl_hvp_vjp_cpu_offload: bool = True
     full_kl_hvp_layer_inputs_cpu_offload: bool = True
     full_kl_hvp_stress_prefix_length: int = 0
-    full_kl_hvp_steps: int = 200
+    # 0 iterates until the eigenpair residual meets the tolerance.
+    full_kl_hvp_steps: int = 0
     full_kl_hvp_tolerance: float = 1e-3
     full_kl_hvp_visible_devices: str = ""
     full_kl_hvp_scratch: str = ""
-    full_kl_hvp_timeout: int = 21600
     full_kl_num_prompts: int = 64
     full_kl_positions_per_response: int = 8
     full_kl_seed: int = 20260903

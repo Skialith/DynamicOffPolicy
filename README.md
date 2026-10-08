@@ -32,6 +32,17 @@ logits 中心差分近似 JVP 也已注释停用，列为最后实现备选。
 见 [layerwise_fisher.py](examples/dynamic_staleness/layerwise_fisher.py)。
 旧 JVP/FVP 联测入口拒绝启动，整网 double-backward 只保留为小模型数值参考。
 
+训练内 Fisher 测量不设置子进程时间上限。`HVP_POWER_STEPS=0`（默认）持续迭代至
+残差满足 `HVP_POWER_TOLERANCE`，正整数只用于显式指定的有限迭代 probe。
+等待测量时，各训练 rank 每秒同步就绪状态，因此通信超时不再充当测量时限。
+N=4/8 提交配方的 `TIME_LIMIT=0` 不设置人为作业时限。残差门槛可在提交时指定：
+
+```bash
+HVP_POWER_TOLERANCE=0.01 bash experiments/20261006_fisher_kqb_short_rollouts/scripts/submit_experiment.sh n4
+```
+
+门槛越大越容易提前收敛；该相对残差是 `||Fv-λv|| / ||Fv||`，并非 λ 的相对误差。
+
 ## 运行与代码同步
 
 8B 训练和 GPU probe 在并行云 Slurm 执行，统一入口为

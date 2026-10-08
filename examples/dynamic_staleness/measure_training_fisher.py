@@ -208,7 +208,9 @@ def make_layerwise_product(model, rows, anchors, vjp_cpu_offload=True, layer_inp
 def power_iteration(product, direction, steps, tolerance):
     normalize_in_place(direction, vector_dot(direction, direction).sqrt())
     history = []
-    for iteration in range(1, steps + 1):
+    iteration = 0
+    while steps == 0 or iteration < steps:
+        iteration += 1
         started = time.perf_counter()
         result = product(direction)
         eigenvalue = vector_dot(direction, result)
@@ -443,7 +445,8 @@ if __name__ == "__main__":
     parser.add_argument("--anchor-update", type=int, required=True)
     parser.add_argument("--age", type=int, required=True)
     parser.add_argument("--gpus", type=int, default=4)
-    parser.add_argument("--steps", type=int, default=200)
+    parser.add_argument("--steps", type=int, default=0,
+                        help="Power iterations; 0 continues until the residual meets tolerance")
     parser.add_argument("--tolerance", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=20261005)
     parser.add_argument("--skip-quadratic", action="store_true", help="Measure K/B without a displacement FVP for Q")
@@ -454,7 +457,7 @@ if __name__ == "__main__":
     parser.add_argument("--stress-prefix-length", type=int, default=0,
                         help="Initial-anchor synthetic resource check on two rows with 8 positions; 0 disables")
     arguments = parser.parse_args()
-    if arguments.steps < 1 or arguments.tolerance <= 0 or arguments.age < 0:
+    if arguments.steps < 0 or arguments.tolerance <= 0 or arguments.age < 0:
         parser.error("Invalid measurement budget, tolerance or age")
     if arguments.stress_prefix_length != 0 and arguments.stress_prefix_length < 8:
         parser.error("Stress prefix length must be 0 or at least 8")

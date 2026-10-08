@@ -63,6 +63,7 @@ from verl.utils.device import (
     get_torch_device,
     set_expandable_segments,
 )
+from verl.utils.fisher_measurement import rank_zero_with_heartbeat
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
@@ -1087,7 +1088,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         offload_fsdp_optimizer(self.actor_optimizer)
         aggressive_empty_cache(force_sync=True)
         dist.barrier()
-        if rank == 0:
+        def measure():
             try:
                 visible = config.full_kl_hvp_visible_devices
                 if len(visible.split(",")) != self.world_size:
@@ -1117,7 +1118,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 if config.full_kl_hvp_stress_prefix_length:
                     command.extend(["--stress-prefix-length", str(config.full_kl_hvp_stress_prefix_length)])
                 print(f"Starting exact HVP: anchor={anchor_update} age={age} output={report_path}", flush=True)
-                subprocess.run(command, env=environment, check=True, timeout=config.full_kl_hvp_timeout)
+                subprocess.run(command, env=environment, check=True)
                 with report_path.open() as stream:
                     report = json.load(stream)
                 message[0] = {"metrics": report["metrics"]}
@@ -1130,7 +1131,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     for name in ("anchor.pt", "anchor_logp.pt", "power.json", "config.json"):
                         (self._hvp_cycle / name).unlink(missing_ok=True)
                     self._hvp_cycle.rmdir()
-        dist.broadcast_object_list(message, src=0)
+            return message[0]
+
+        message[0] = rank_zero_with_heartbeat(measure)
         load_fsdp_model_to_gpu(self.actor_module_fsdp)
         load_fsdp_optimizer(self.actor_optimizer, device_id=get_device_id())
         dist.barrier()

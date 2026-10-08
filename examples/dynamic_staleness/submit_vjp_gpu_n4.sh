@@ -29,16 +29,15 @@ export GPU_MEMORY_UTILIZATION=0.7 ROLLOUT_MAX_BATCHED_TOKENS=8192 ROLLOUT_MAX_NU
 export ROLLOUT_MAX_MODEL_LEN=4096 REWARD_NUM_WORKERS=8
 export ENABLE_BENCHMARK_EVAL=0 VAL_BEFORE_TRAIN=false TEST_FREQ=-1
 export KL_NUM_PROMPTS=64 KL_POSITIONS_PER_RESPONSE=8 KL_MEASUREMENT_SEED=20260903
-export HVP_POWER_STEPS=200 HVP_POWER_TOLERANCE=0.001 HVP_MEASUREMENT_TIMEOUT=28800 HVP_NCCL_TIMEOUT=36000
+export HVP_POWER_STEPS=0 HVP_POWER_TOLERANCE=${HVP_POWER_TOLERANCE:-0.001}
 export SAVE_FREQ=-1 PERSISTENT_CACHE_ROOT=${ASSET_REPO}/.cache/paracloud
-export JOB_NAME=fisher-vjp-gpu-n4-g4 TIME_LIMIT=1-00:00:00
+export JOB_NAME=fisher-vjp-gpu-n4-g4 TIME_LIMIT=0
 export EXPERIMENT_NAME=fisher_vjp_gpu_n4_u0004
 export OUTPUT_ROOT=${REPO_ROOT}/outputs/fisher_vjp_gpu_n4/raw/probe
 export RUN_CONFIG_TAG=g4_tp2_seed1_vjp_gpu_n4_one_rollout
 
 # Submit only this GPU-VJP storage probe; existing deployments are untouched.
 # An optional SLURM_DEPENDENCY is forwarded unchanged.
-# Keep the process-group timeout beyond the 8-hour measurement child.
 if [[ "${DRY_RUN}" == 1 ]]; then
     export TMPDIR=${TMPDIR:-/tmp/ds-vjp-gpu-n4-config}
     exec bash examples/dynamic_staleness/run_staleness.sh anchor "$@"

@@ -32,14 +32,13 @@ export GPU_MEMORY_UTILIZATION=0.7 ROLLOUT_MAX_BATCHED_TOKENS=8192 ROLLOUT_MAX_NU
 export ROLLOUT_MAX_MODEL_LEN=4096 REWARD_NUM_WORKERS=8
 export ENABLE_BENCHMARK_EVAL=0 VAL_BEFORE_TRAIN=false TEST_FREQ=-1
 export KL_NUM_PROMPTS=64 KL_POSITIONS_PER_RESPONSE=8 KL_MEASUREMENT_SEED=20260903
-export HVP_POWER_STEPS=200 HVP_POWER_TOLERANCE=0.001 HVP_MEASUREMENT_TIMEOUT=28800 HVP_NCCL_TIMEOUT=36000
+export HVP_POWER_STEPS=0 HVP_POWER_TOLERANCE=${HVP_POWER_TOLERANCE:-0.001}
 export SAVE_FREQ=-1 PERSISTENT_CACHE_ROOT=${ASSET_REPO}/.cache/paracloud
-export JOB_NAME=fisher-kqb-short-${SETTING}-g4 TIME_LIMIT=7-00:00:00
+export JOB_NAME=fisher-kqb-short-${SETTING}-g4 TIME_LIMIT=0
 export EXPERIMENT_NAME=fisher_kqb_short_${SETTING}_u$(printf '%04d' "${TARGET_OPTIMIZER_STEP}")
 export OUTPUT_ROOT=${REPO_ROOT}/experiments/20261006_fisher_kqb_short_rollouts/${SETTING}/raw/formal
 export RUN_CONFIG_TAG=g4_tp2_seed1_hvp_short_${SETTING}
 
 # The existing long-prefix integration gate passed in job 190665. No pending
 # probe is scheduled here; an optional SLURM_DEPENDENCY is forwarded unchanged.
-# Keep the process-group timeout beyond the 8-hour measurement child.
 bash examples/dynamic_staleness/submit_slurm.sh anchor

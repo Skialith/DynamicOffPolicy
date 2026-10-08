@@ -374,6 +374,9 @@ class TrainingFisherTest(unittest.TestCase):
         result = measure.power_iteration(product, direction, 50, 1e-5)
         self.assertTrue(result["converged"])
         self.assertAlmostEqual(result["lambda_estimate"], 3.0, places=5)
+        unlimited = measure.power_iteration(product, [torch.ones(2)], 0, 1e-5)
+        self.assertTrue(unlimited["converged"])
+        self.assertAlmostEqual(unlimited["lambda_estimate"], result["lambda_estimate"], places=5)
         unfinished = measure.power_iteration(product, [torch.ones(2)], 1, 1e-8)
         self.assertFalse(unfinished["converged"])
 

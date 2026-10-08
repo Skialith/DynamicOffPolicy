@@ -126,11 +126,11 @@ full_kl_hvp_layer_inputs_cpu_offload: true
 
 # Initial-anchor synthetic resource check, separate from measured rollout prefixes.
 full_kl_hvp_stress_prefix_length: 0
-full_kl_hvp_steps: 200
+# 0 iterates until the eigenpair residual meets the tolerance.
+full_kl_hvp_steps: 0
 full_kl_hvp_tolerance: 0.001
 full_kl_hvp_visible_devices: ""
 full_kl_hvp_scratch: ""
-full_kl_hvp_timeout: 21600
 
 # Global prompt groups sampled once per rollout, not per rank
 full_kl_num_prompts: 64

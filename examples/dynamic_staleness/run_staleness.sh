@@ -452,12 +452,10 @@ if [[ "${FULL_KL_HVP}" == 1 ]]; then
         "actor_rollout_ref.actor.full_kl_hvp_vjp_cpu_offload=${HVP_VJP_CPU_OFFLOAD_BOOL}"
         "actor_rollout_ref.actor.full_kl_hvp_stress_prefix_length=${HVP_STRESS_PREFIX_LENGTH}"
         "actor_rollout_ref.actor.full_kl_hvp_compute_quadratic=${HVP_QUADRATIC_BOOL}"
-        "actor_rollout_ref.actor.full_kl_hvp_steps=${HVP_POWER_STEPS:-200}"
+        "actor_rollout_ref.actor.full_kl_hvp_steps=${HVP_POWER_STEPS:-0}"
         "actor_rollout_ref.actor.full_kl_hvp_tolerance=${HVP_POWER_TOLERANCE:-0.001}"
         "actor_rollout_ref.actor.full_kl_hvp_visible_devices='${CUDA_VISIBLE_DEVICES}'"
         "actor_rollout_ref.actor.full_kl_hvp_scratch=${TMPDIR:?HVP requires Slurm job-local TMPDIR}/fisher-hvp"
-        "actor_rollout_ref.actor.full_kl_hvp_timeout=${HVP_MEASUREMENT_TIMEOUT:-21600}"
-        "++actor_rollout_ref.nccl_timeout=${HVP_NCCL_TIMEOUT:-24000}"
     )
 fi
 
