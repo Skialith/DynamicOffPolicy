@@ -33,3 +33,21 @@ The recipe enables FISHER_VJP_N4_PREFLIGHT=1. On the allocated compute node,
 CPU numerical regressions and the resolved Hydra configuration must pass before
 rollout/training starts. Setup time is logged separately. This avoids relying on
 a login-node Python import when its Ceph metadata requests are stalled.
+
+Current-prefix detached inputs can also remain on their layer GPUs with
+HVP_LAYER_INPUTS_CPU_OFFLOAD=0 (CLI --layer-inputs-gpu). Each input is popped and
+released after its VJP; no inputs from other prefixes or iterations are cached.
+Production FVPs now add row gradients directly into one total buffer. The
+metadata records layer_inputs_cpu_offload and fvp_accumulation=direct_into_total.
+
+Run the standalone resource probe with:
+
+    bash examples/dynamic_staleness/submit_fvp_storage_probe.sh
+
+It compares the 195937 CPU-input/per-row-result baseline with GPU inputs/direct
+accumulation on the same allocated GPUs. Each mode performs three FVPs over two
+4095-token prefixes and eight positions, replacing the direction between calls.
+CPU exact-HVP regressions and the four-GPU numerical check precede the 8B probe.
+Per-call time includes FVP and norm calculation; peaks are reset per call. Only
+scalar reports persist. No rollout, optimizer update, research lambda or KL is
+measured. A later training integration uses HVP_LAYER_INPUTS_CPU_OFFLOAD=0.

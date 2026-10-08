@@ -121,6 +121,9 @@ full_kl_hvp_compute_quadratic: true
 # Only the current layer VJP graph; detached layer inputs still stay on CPU.
 full_kl_hvp_vjp_cpu_offload: true
 
+# Current prefix only; pop each detached layer input after its VJP.
+full_kl_hvp_layer_inputs_cpu_offload: true
+
 # Initial-anchor synthetic resource check, separate from measured rollout prefixes.
 full_kl_hvp_stress_prefix_length: 0
 full_kl_hvp_steps: 200

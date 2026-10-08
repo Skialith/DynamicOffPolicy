@@ -14,9 +14,9 @@ case "${TARGET}" in
         echo "${TARGET} is paused; historical JVP implementations are retained in comments" >&2
         exit 2
         ;;
-    smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|anchor|branch|n4_then_n8) ;;
+    smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|fisher_fvp_probe|anchor|branch|n4_then_n8) ;;
     *)
-        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
+        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|fisher_fvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
         exit 2
         ;;
 esac

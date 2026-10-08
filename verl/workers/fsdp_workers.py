@@ -1112,6 +1112,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     command.append("--skip-quadratic")
                 if not config.full_kl_hvp_vjp_cpu_offload:
                     command.append("--vjp-gpu-activations")
+                if not config.full_kl_hvp_layer_inputs_cpu_offload:
+                    command.append("--layer-inputs-gpu")
                 if config.full_kl_hvp_stress_prefix_length:
                     command.extend(["--stress-prefix-length", str(config.full_kl_hvp_stress_prefix_length)])
                 print(f"Starting exact HVP: anchor={anchor_update} age={age} output={report_path}", flush=True)

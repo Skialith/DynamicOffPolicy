@@ -1,9 +1,9 @@
 """Exact J^T F_z Jv without a whole-model second-order graph.
 
 For an eval Qwen3 model outside FSDP, propagate parameter/input tangents one
-module at a time. Retain only detached layer inputs on CPU, then recompute each
-module for an ordinary VJP. This is the frozen-anchor KL Hessian at the anchor,
-not a Hessian of an arbitrary loss or of KL away from its anchor.
+module at a time. Retain detached inputs on CPU or their layer GPU, then
+recompute each module for an ordinary VJP and release its input. This is the
+frozen-anchor KL Hessian at the anchor, not a Hessian of an arbitrary loss or of KL away from its anchor.
 """
 
 from contextlib import nullcontext
@@ -30,7 +30,8 @@ def module_jvp(module, value, tangent, directions):
     return primal.detach(), result.detach()
 
 
-def _layerwise_derivative(model, row, anchor, direction, saved_context=None, progress=None):
+def _layerwise_derivative(model, row, anchor, direction, saved_context=None, progress=None,
+                          layer_inputs_cpu_offload=True, accumulator=None):
     if model.training or model.config.model_type != "qwen3":
         raise ValueError("Layerwise Fisher requires an eval, unwrapped Qwen3 model")
     parameters = list(model.parameters())
@@ -53,7 +54,10 @@ def _layerwise_derivative(model, row, anchor, direction, saved_context=None, pro
         value = value.to(device)
         if tangent is not None:
             tangent = tangent.to(device)
-        tape.append((module, value.detach().cpu(), label))
+        saved_input = value.detach()
+        if layer_inputs_cpu_offload:
+            saved_input = saved_input.cpu()
+        tape.append((module, saved_input, label))
         covered.update(id(parameter) for parameter in module.parameters())
         if direction is None:
             with torch.no_grad():
@@ -108,8 +112,9 @@ def _layerwise_derivative(model, row, anchor, direction, saved_context=None, pro
         covector = (covector * row["weights"].to(logits.device)[:, None]).to(logits.dtype).unsqueeze(0)
     del logits, tangent, hidden, probabilities
     emit("fisher_logits_done")
-    result = [torch.zeros_like(parameter) for parameter in parameters]
-    for module, saved_input, label in reversed(tape):
+    result = accumulator if accumulator is not None else [torch.zeros_like(parameter) for parameter in parameters]
+    while tape:
+        module, saved_input, label = tape.pop()
         local_parameters = list(module.parameters())
         device = local_parameters[0].device
         value = saved_input.to(device)
@@ -126,7 +131,7 @@ def _layerwise_derivative(model, row, anchor, direction, saved_context=None, pro
             parameter_gradients = gradients
         for parameter, gradient in zip(local_parameters, parameter_gradients):
             result[indices_by_id[id(parameter)]].add_(gradient)
-        del output, inputs, gradients, parameter_gradients, value
+        del output, inputs, gradients, parameter_gradients, value, saved_input
         if label == "head":
             # Transpose of the selected-position gather before the output head.
             full = covector.new_zeros(full_hidden_shape)
@@ -137,10 +142,14 @@ def _layerwise_derivative(model, row, anchor, direction, saved_context=None, pro
     return result
 
 
-def layerwise_fisher_product(model, row, anchor, direction, saved_context=None, progress=None):
-    return _layerwise_derivative(model, row, anchor, direction, saved_context, progress)
+def layerwise_fisher_product(model, row, anchor, direction, saved_context=None, progress=None,
+                             layer_inputs_cpu_offload=True, accumulator=None):
+    """Add a row FVP into accumulator in place, or allocate one when omitted."""
+    return _layerwise_derivative(model, row, anchor, direction, saved_context, progress,
+                                 layer_inputs_cpu_offload, accumulator)
 
 
-def layerwise_kl_gradient(model, row, anchor, saved_context=None):
+def layerwise_kl_gradient(model, row, anchor, saved_context=None, layer_inputs_cpu_offload=True):
     """Frozen-KL first derivative, with the same bounded-memory VJP path."""
-    return _layerwise_derivative(model, row, anchor, None, saved_context)
+    return _layerwise_derivative(model, row, anchor, None, saved_context,
+                                 layer_inputs_cpu_offload=layer_inputs_cpu_offload)

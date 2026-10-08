@@ -98,7 +98,7 @@ class TrainingFisherTest(unittest.TestCase):
             power = {"lambda_estimate": 3.0, "residual": 1e-4, "iterations": 12, "converged": True}
             (cycle / "power.json").write_text(json.dumps(power))
             args = SimpleNamespace(cycle=cycle, context=cycle / "contexts.pt", output=cycle / "report.json",
-                                   anchor_update=0, age=1, gpus=4, skip_quadratic=True, vjp_gpu_activations=False)
+                                   anchor_update=0, age=1, gpus=4, skip_quadratic=True, vjp_gpu_activations=False, layer_inputs_gpu=False)
             with patch.object(torch.cuda, "device_count", return_value=4), \
                  patch.object(measure, "place_layers"), patch.object(measure, "memory", return_value={}), \
                  patch.object(measure, "make_layerwise_product", side_effect=AssertionError("Unexpected Q FVP")):
@@ -222,6 +222,35 @@ class TrainingFisherTest(unittest.TestCase):
                             model, rows, anchors, vjp_cpu_offload=False)(direction)
                 for reference, value in zip(expected, actual):
                     torch.testing.assert_close(value, reference, atol=1e-6, rtol=1e-5)
+
+    def test_gpu_inputs_and_direct_accumulation_match_weighted_exact_hvp(self):
+        for tied in (False, True):
+            with self.subTest(tied=tied):
+                torch.manual_seed(43)
+                config = self.tiny_model().config
+                config.tie_word_embeddings = tied
+                model = Qwen3ForCausalLM(config).eval()
+                parameters = list(model.parameters())
+                direction = [torch.randn_like(parameter) for parameter in parameters]
+                rows = [{"input_ids": torch.tensor([tokens]),
+                         "position_ids": torch.arange(len(tokens)).unsqueeze(0),
+                         "indices": torch.tensor([len(tokens) - 1]),
+                         "weights": torch.tensor([weight], dtype=torch.float64)}
+                        for tokens, weight in [([1, 2, 3], 0.3), ([4, 3, 2, 1], 0.7)]]
+                anchors = [measure.selected_logits(model, row).detach().double().log_softmax(-1) for row in rows]
+                expected = measure.make_product(model, rows, anchors)(direction)
+                actual = measure.make_layerwise_product(model, rows, anchors, False, False)(direction)
+                for reference, value in zip(expected, actual):
+                    torch.testing.assert_close(value, reference, atol=1e-6, rtol=1e-5)
+                initial = [torch.randn_like(parameter) for parameter in parameters]
+                accumulator = [value.clone() for value in initial]
+                for row, anchor in zip(rows, anchors):
+                    returned = measure.layerwise_fisher_product(
+                        model, row, anchor, direction, layer_inputs_cpu_offload=False,
+                        accumulator=accumulator)
+                    self.assertIs(returned, accumulator)
+                for start, reference, value in zip(initial, expected, accumulator):
+                    torch.testing.assert_close(value, start + reference, atol=1e-6, rtol=1e-5)
 
     def test_synthetic_long_prefix_product_matches_exact_hvp(self):
         torch.manual_seed(41)
