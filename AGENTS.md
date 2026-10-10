@@ -1,6 +1,6 @@
 # 动态 Off-policy / Staleness：核心研究与实验约束
 
-更新：2026-10-07。本文件只保留研究命题、核心 idea、共同计数口径、文档与代码隔离规范
+更新：2026-10-10。本文件只保留研究命题、核心 idea、共同计数口径、文档与代码隔离规范
 和必要基础信息。具体实验的设置、启动与状态写入实验 README；只有确认分析后，数值
 结果和图表解读才写入对应 `EXPERIMENT_RECORD.md`。本文件不累积单次运行日志。
 
@@ -9,25 +9,31 @@
 
 ## 科研命题
 
-在每次真实 optimizer update 的训练数据量固定时，研究能否利用一个 rollout 周期前段
-已经观测到的学习动力学，预测继续使用同一行为策略数据时的未来策略漂移，并据此动态
-选择该行为策略支持的连续更新次数 N。目标是在相同训练 update、trajectory/token 和
-模型能力约束下减少 rollout 刷新开销，同时不增加校准后的 staleness 越界风险。
+在每次真实 optimizer update 的训练数据量固定时，保留旧策略 rollout 中的固定因果
+前缀和该策略在这些位置上的全词表分布，在后续更新、甚至跨 rollout 周期后，用当前
+模型前向直接计算相对旧策略的 KL。研究这种延迟观测能否以足够低的额外成本，筛选
+值得尝试更大更新间隔 N 的时机，并经真实大 N 运行校准后逐级调整 N。
 
-这个命题包含两个需要分别验证的问题：前段观测能否对尚未发生的轮内 KL 峰值提供额外
-预测能力；使用该预测选择 N 后，能否在等训练数据预算下提高端到端训练效率而不损害
-稳定性和能力。前者是预测问题，后者是策略效果问题，不能由同一次相关性分析替代。
+当前优先验证两个问题：
+
+1. 保存旧 anchor 的前缀和输出分布，再做当前模型前向与 KL 聚合，存储、内存和
+   端到端训练暂停成本是否可接受。
+2. 较小 N 训练路径上的跨轮 KL，是否能有效筛选真实较大 N 运行中可接受的窗口。
+   首个候选关系为 N=4 跨两轮的八步漂移与真实 N=8 轮内漂移的对应关系。
+
+随后单独验证反馈规则的策略效果：在相同真实更新数、trajectory/token 和模型能力
+约束下，能否减少 rollout 刷新开销、提高端到端训练效率，同时不增加校准后的
+staleness 越界风险。观测成本、候选信号的有效性和策略收益分别验证。
 
 ## 核心 idea
 
-当前顺序是：直接测量轮内累计 KL → 用 anchor Fisher 的 λmax 与实际累计参数位移
-解释局部漂移尺度 → 检验前段信息对未来位移和 KL 峰值的预测能力 → 校准不确定性、
-能力与稳定性预算 → 动态选择 N。在线 controller 是后续验证对象，不是测量前提。
+当前顺序是：保留旧 anchor 的前缀与全词表分布 → 验证缓存和额外前向成本 → 在
+较小 N 下直接观测跨轮 KL → 与真实较大 N 运行对照 → 校准经验阈值和测量触发规则
+→ 在 rollout 边界逐级调整下一轮 N → 验证等训练数据预算下的效率、稳定性和能力。
 
-候选解释链条是：stage → anchor 处的方向曲率与 optimizer 实际位移 → 局部 Fisher
-二次型及其谱界 → 真实累计 KL 与近似余项 → 可容忍的更新间隔。不预设 λmax、KL、
-峰值或可容忍 N 随训练单调变化；stage 按真实更新编号或明确 checkpoint 描述，同时
-核对学习率和观测分布，避免将调度变化或前缀变化归因于纯粹的阶段效应。
+Fisher、参数 norm 与 KL 的数学拟合路线暂缓，当前测量和控制不以这些量为前提。
+不预设 KL、轮内峰值或可容忍 N 随训练单调变化；stage 按真实更新编号或明确
+checkpoint 描述，同时核对学习率和观测分布。
 
 ### 固定每次 update 的数据量
 
@@ -38,114 +44,110 @@
 改变 N 时不缩小 mini-batch；复用的是行为策略版本，不是把同一 trajectory 重复训练
 N 次。缩小 batch 的工程运行必须标为 probe，不与正式训练量混用。
 
-### 轮内累计 KL、峰值与预算
+### 旧 anchor 缓存与直接 KL
 
-令 t 为本轮 rollout 起点的真实更新编号，π_t 为该策略版本的训练侧 anchor。在本轮
-固定的前缀集合和权重 q_t 上直接测量旧模型到新模型的全词表 KL：
+令 t 为旧 anchor 的真实更新编号，π_t 为训练侧策略，q_t 为其真实 rollout 中选定
+的前缀和聚合权重。缓存 token IDs、预测位置、mask、权重，以及这些位置的旧策略
+全词表 logits 或 log-probabilities；后续对同一前缀做当前模型前向，计算
+`KL(π_t || π_current)`。旧 rollout 缓存用于观测，不作为重复训练同一 trajectory 的理由。
 
-```text
-K_t(a) = E_(h~q_t) [KL(π_t(·|h) || π_(t+a)(·|h))]
-M_post_t(N) = max {K_t(a): a=1,...,N}
-M_pre_t(N)  = max {K_t(a): a=0,...,N-1}
-M_post_t(4→N) = max {K_t(a): a=5,...,N}
-M_post_t(N) = max(M_post_t(4), M_post_t(4→N))
-```
+沿用既有 K 测量的选择口径：64 个 prompt group，每组一条有效 response，每条最多
+8 个有效 response-token 位置；取预测该 token 的前一位置输出，保留完整因果前缀
+与全词表，prompt 等权、组内有效位置等权。调整采样规模需写入对应实验配置，不
+静默改变 response/position 选择、前缀或权重。
 
-更新后口径 `age_after=1,...,N` 包含终点；使用旧数据前的口径为
-`policy_age=0,...,N-1`。声明约束范围后再计算容忍度，不混用两种峰值。这里的 max
-沿轮内 age 取值，每个 K 本身仍是前缀平均 KL，不是对状态取最大值。
+一个 anchor 的前缀、位置和权重在其整个观测窗口内固定；新 rollout 可另选新 anchor
+的前缀，但不能覆盖仍需跨轮比较的旧缓存。保存所选位置的全词表分布，不要求保存
+整批 rollout 全部 token 的 logits、旧模型权重、KV cache 或反传图。
 
-比较较长窗口的前段与后续步骤时，固定该轮 anchor 和前缀。这能测量延长窗口带来的
-额外漂移，但不能替代更频繁刷新 rollout 的分支对照。验证刷新策略需匹配起点、
-optimizer/scheduler 状态和更新数据安排。
+当前模型使用完整因果前缀做无求导前向，不重新生成 response；同一 response 的多个
+测量位置尽量共用前向。KL 不做 top-k/top-p 截断，不以 sampled-token log-prob 差或
+有限 logits 差分二次量代替；log-softmax 和 KL 聚合至少用 FP32。两端模型精度和
+执行路径应一致，跨路径复用分布须先验证数值差异不会影响阈值判断。
 
-先固定候选 KL 预算 δ，再研究各 stage 满足整个 age 范围约束的最大已测 N。δ 不等于
-PPO clip 参数、KL loss coefficient 或 N_cap；当前未确定 δ。“预算内”还需能力、
-ratio 尾部、clip fraction 和 ESS 校准。有限运行的观测最大值不是普适安全上界；
-只测到某个 N 满足条件，不代表已找到 maximal。
+### 跨轮漂移与真实大 N 的区别
 
-## 当前推理假设：λmax 与实际参数位移
-
-令 θ_t 为完成 t 次真实 optimizer update 后的参数，F_t 为同一 anchor 和 q_t 上的
-全参数 Fisher。它等于 frozen-anchor 全词表 KL 在 θ_t 处对参数的 Hessian：
+以 N=4 为例，π_old=π_t，第一轮结束为 π_(t+4)，第二轮结束为 π_(t+8)。保留 q_t
+和 π_t 的分布到第二轮后，可直接得到旧 anchor 到八步后模型的 KL。它属于中间
+刷新过 rollout 的 N=4 训练路径，不等同于连续八步使用 π_t 行为策略数据的真实
+N=8 路径；后四步的数据、行为策略概率和 optimizer 更新可能不同。
 
 ```text
-u_i = θ_(i+1) - θ_i
-Δ_(t,a) = θ_(t+a) - θ_t = Σ_(i=0)^(a-1) u_(t+i)
-F_t = E_(h~q_t, y~π_t) [s_t(h,y) s_t(h,y)^T]
-s_t(h,y) = ∇_θ log π_θ(y|h) |_(θ=θ_t)
-
-Q_t(a) = 1/2 · Δ_(t,a)^T F_t Δ_(t,a)
-B_t(a) = 1/2 · λ_max(F_t) ||Δ_(t,a)||²
-Q_t(a) <= B_t(a)
-K_t(a) = Q_t(a) + R_t(a)
-
-B_hat_t(a) = 1/2 · λ_hat_max(F_t) ||Δ_(t,a)||²
+a = current_optimizer_update - anchor_optimizer_update
+K_t^path(a) = E_(h~q_t) [KL(π_t(·|h) || π_(t+a)^path(·|h))]
 ```
 
-λmax 描述 anchor 处最敏感参数方向的局部曲率；实际累计位移描述 optimizer 已经走了
-多远。二者共同提供漂移尺度，不能只用 λmax 或 raw gradient norm 判断允许的 N。
-Adam 类更新依赖动量、预条件与 weight decay，gradient norm 不能直接换算实际位移；
-累计位移 norm 也不能由各步 norm 相加恢复，相邻 KL 之和不等于累计 KL。
+`path` 明确刷新和训练数据安排。跨轮的 a=8 表示相对旧 anchor 已经过八次真实更新，
+不能记作当前 rollout 的 `policy_age=8`。测量记录明确 anchor update、current
+update、当前 rollout 的行为策略版本，以及该比较属于哪条训练路径。
 
-上述谱不等式约束的是局部二次型 Q。真实有限位移 KL 还含余项 R，R 没有预设符号或
-已校准上界；anchor 曲率也不能代表整个参数路径上的曲率。因此 B_hat 是候选漂移尺度
-或候选界，不是有限位移 KL 的严格安全上界，不能未经校准直接拿来替代 KL 预算。
+较小 N 路径上的跨轮 KL 是升级候选信号，不是未执行的大 N 路径的实测结果或安全
+上界。两者没有预设大小关系；先检验候选信号与真实大 N 轮内 KL 的对应关系，再
+用于反馈规则。分支对照需匹配起点、optimizer/scheduler 状态、前段更新数据及后段
+prompt 安排，明确后段行为策略刷新差异。
 
-不构造完整 Fisher；通过 FVP 与谱迭代估计 λmax。固定模型、q_t 与 anchor 后再改变
-迭代方向，不能在迭代中更新 anchor。Rayleigh quotient 和特征方程残差用于数值检查；
-残差达标只说明找到近似特征对，不自动证明它就是全局最大特征值，也不提供最大
-特征值上界证书。迭代未收敛时不将结果作为合格 λ 使用，门槛与资源上限写入实验配置。
+### KL 峰值、经验阈值与反馈规则
 
-当前测量以每轮 anchor 的 λ、直接累计 KL K 和真实累计位移构造的 B_hat 为主。
-必要时另测 Q，区分方向曲率、谱界松紧和有限位移余项；Q 是诊断量，不要求每个实验
-都计算。各量必须使用同一策略 anchor、前缀分布、参数版本与聚合权重；不同精度或
-模型执行路径的 KL 不混作同一测量。
-
-### 求导实现与已否决路线
-
-当前 FVP 在独立、非 FSDP 的测量模型中，逐层传播参数/输入 JVP，再作用全词表
-softmax Fisher，最后逐层重算并做普通 VJP，得到 `J^T F_z Jv`。它与 anchor 处的
-KL HVP 数学对象相同；embedding、norm、head 等全参数参与，不冻结参数或使用 TOP-K。
-只保留 detached 层输入和单层反传图，避免保留整网二阶图。
-
-- 更新后有限 logits/log-prob 差分代理 KL、Fisher 长度和对齐量已否决：得到新策略
-  输出后直接计算 KL，不将事后输出差分作为未来预测或参数 JVP 的替代。
-- 训练侧 legacy FSDP 内直接 functional 参数 JVP 已注释停用，保留最初逻辑考量。
-- 参数扰动、logits 中心差分近似 JVP 已注释停用，列为最后 JVP 实现备选；它与
-  更新前后有限输出差分代理是不同方法。
-- KL 梯度中心差分近似 FVP/HVP 未通过既有数值对照，不能作为当前谱估计主实现。
-- 整网 double-backward 保留作小模型精确 AD 参考；整网图 CPU offload、前向重算
-  是该路线的内存处理，不改变 Fisher 目标。长前缀测量使用当前逐层实现。
-
-### 从测量到前瞻预测
-
-事后用实际累计位移计算 B_hat，只能说明已发生的漂移关系。即使使用已观测到的未来
-gradient/update 后能复现后续 KL，也只是 oracle 回顾性检验，不是在线预测。
-
-若在第 4 步决定是否继续延长，只能使用截至第 4 步已获得的 anchor λ、近期 KL、
-gradient/update 和累计位移信息，预测未来 `age=5,...,N_cap` 的位移及 KL 峰值。
-固定 anchor 的 λ 估计可以作为特征；未来位移、曲率变化和近似余项仍需预测与校准，
-不能读入未来 gradient、KL 或评测输入。对比“只用训练进度”“加入近期 KL”“再加入
-λ 与位移信息”的额外预测能力，并按完整 rollout 或独立运行留出验证，重点检查低估
-导致的越界。最终候选规则为：
+对已经声明的训练路径和固定 q_t，区分更新后与使用旧数据前的口径：
 
 ```text
-N* = max {n : Q_(1-alpha)(max_(a=5,...,n) K_t(a) | I_t,4) <= delta}
+M_post_t^path(A) = max {K_t^path(a): a=1,...,A}
+M_pre_t^path(A)  = max {K_t^path(a): a=0,...,A-1}
 ```
 
-`I_t,4` 表示第 4 次更新结束时已经获得的信息；这里的 `Q_(1-alpha)` 是条件分位数，
-与 Fisher 二次型 Q_t 不同。δ 和置信水平由能力、稳定性及预测误差校准，不绑定一次
-运行的示例值；λ/B_hat 的解释能力和动态 N 的策略收益分别验证。
+轮内窗口取 A=N；跨轮窗口另声明 A 与 path。这里的 max 沿 anchor age 取值，每个
+K 本身仍是前缀平均 KL，不是对状态取最大值。相邻 KL 之和不等于累计 KL。
+轮内更新后口径为 `age_after=1,...,N`，使用旧数据前的口径为 `policy_age=0,...,N-1`；
+声明约束范围后再计算容忍度，不混用两种峰值或跨轮 anchor age。
 
-### 论文依据的使用边界
+只测终点 K_t(8) 不能排除 age=5、6、7 的更高峰值。首轮验证应覆盖后段逐 update
+测量，以评估稀疏观测会遗漏的峰值；后续测量频率依据成本和该验证结果确定。稀疏
+采样的最大值须标为已测位置最大值，不将其写成整个窗口峰值或普适安全上界。
 
-- [TRPO 第 3–4 节与附录 C](https://arxiv.org/pdf/1502.05477)：借鉴 KL 预算和局部
-  Fisher 近似。其 `D_KL^max` 的 max 是对状态取最大值，实际算法用平均 KL 近似；
-  本项目研究既定优化器下旧 rollout 支持多少步，不直接继承其改进保证。
-- [Learning Dynamics of LLM Finetuning 第 2–3 节](https://arxiv.org/html/2407.10490v4)：
-  借鉴更新如何改变输出概率以及多步积累的分析方式，不能缩减成单一 gradient norm
-  关系；SFT/DPO 结论迁移到 GRPO staleness 场景仍需验证。
+threshold 可先采用预先声明的经验候选值，结合已接受的基线和真实大 N 试运行校准。
+δ 不等于 PPO clip 参数、KL loss coefficient 或 N_cap；数值、约束口径与适用设置
+写入实验 README，当前不指定全实验通用值。KL 达标还需核对能力、ratio 尾部、
+clip fraction 和 ESS。只测到某个 N 达标，不代表已找到最大可容忍 N。
+
+规则先在 rollout 边界决定下一轮 N。候选流程为：按固定频率或近期已获得的 KL/
+训练状态触发跨轮测量 → 连续观测满足升级条件 → 少量真实大 N 试运行 → 根据其
+实测 KL 和训练表现保持或降级。可检验不同的升级/降级阈值以减少来回切换；等级、
+触发频率、连续窗口数和阈值均为待验证设置，不提前固定为结论。
+
+决定时只能使用已经获得的信息，不能回填尚未发生的 KL。事后观测用于后续决策，
+不能撤销已经发生的越界，也不等于第 4 步已预测出后四步漂移。规则需按完整 rollout
+或独立运行留出验证，分别检验候选信号的误判和真实升级后的越界、能力及效率。
+
+### 成本与实现优先级
+
+新方向复用直接 KL 路径，仅需分布缓存、当前模型无求导前向与聚合。新测量路径
+不得调用 Fisher/FVP/HVP、分层 JVP/VJP、谱迭代、测量用参数位移或 Q/B 计算，
+也不依赖 `measure_training_fisher.py`、`layerwise_fisher.py` 等求导入口。新分支与
+worktree 实际删除这些实现、训练接入、配置及旧提交/probe 入口，不仅关闭开关；
+历史实现保留在原主 worktree 和 Git 历史中。正常训练的 backward/optimizer 不受影响。
+
+新路线不提供历史 JVP/HVP 配置；启动脚本拒绝残留的旧求导环境设置，旧 Hydra
+配置不再受支持。验证代码清理和调用链后，再用真实 GPU probe 确认无求导前向的
+KL、成本和数值一致性。是否采用独立测量模型，以该验证为准。
+
+分别测量首次分布计算与保存、缓存字节数和内存/显存峰值、额外前向与 KL 聚合、
+以及实际训练暂停。若实现涉及模型快照、装载、offload/reload、分布传输或多卡同步，
+这些成本均计入端到端暂停；区分每个 anchor 的首次缓存成本与后续重复测量成本，
+并报告摊销后的训练开销。
+既有 K/B 报告包含的装载、位移等工作不能直接当作一次额外 KL 前向成本。
+
+等真实更新数下，增大 N 不减少应生成的 trajectory 总量；潜在收益来自减少刷新、
+模型切换及改善批处理效率。比较实测端到端收益与新增观测开销，不把 N 加倍解释
+为生成 token 或 rollout 生成耗时自动减半。缓存保留数量和释放时机写入实验配置，
+原始日志和需归档的前缀数据按既有 raw 规范保存。
+
+### 暂缓路线
+
+Fisher 矩阵、λmax、FVP/HVP、norm→KL 拟合、Q/B/R 数学解释和基于未来位移
+预测的 controller 暂缓。已有实现保留在原主 worktree 与 Git 历史，实验档案保留；
+新方向不继续优化或默认运行这些测量，只有明确重新启用时才恢复相应验证要求。暂缓不改写已有实验
+结论，也不改变已提交作业。先前否决的有限输出差分代理与梯度差分 FVP 不因转向
+而恢复为当前路线。
 
 ## 共同实验口径
 
@@ -156,9 +158,10 @@ N* = max {n : Q_(1-alpha)(max_(a=5,...,n) K_t(a) | I_t,4) <= delta}
   用于采集轮内曲线，不等于等训练量；rollout 次数、生成开销与吞吐另作效率结果。
 - 按预先声明的 M_pre 或 M_post，在等训练数据预算下报告峰值和按 update/trajectory
   加权的越界率；不同策略经历的周期数不同，不直接比较越界周期的个数。
-- KL 明确两端策略、方向、前缀分布和聚合权重。当前使用真实 rollout 保存的因果
-  前缀，轮内固定、轮间重选，prompt 等权再按有效位置等权。跨 stage 隔离模型漂移
-  需统一 probe q；换轮后的曲线断点不表示模型回退。
+- KL 明确两端策略、方向、训练路径、前缀分布和聚合权重。当前使用真实 rollout
+  保存的因果前缀，各 anchor 的整个观测窗口内固定，新 rollout 可另选新前缀；
+  prompt 等权再按有效位置等权。跨 stage 隔离模型漂移需统一 probe q；换 anchor
+  后的曲线断点不表示模型回退。
 - 相邻 KL、相对 rollout anchor 的累计 KL、两分支间 KL 分开；全词表 KL 与
   sampled-token proxy 分开。训练侧漂移与 rollout 引擎 gap 分开，不能用相邻日志
   相减恢复相邻模型 KL。
@@ -182,6 +185,10 @@ probe、正式运行和重跑放在各自 `raw/<phase>_job<id>/`。研究问题�
 每个独立设置首先只建立 README，写清任务、与其他实验的具体关系、完整配置、提交
 脚本/job ID/时间/依赖/远端输出/带核验日期的状态，以及已有产物入口。Slurm 完成不
 自动产生分析结论；未要求分析时不建立 `docs/EXPERIMENT_RECORD.md`。
+
+实验结束后可直接将日志、配置、JSON/JSONL、逐 age 报告和 TensorBoard 原始产物
+归档到本地对应实验的 `raw/<phase>_job<id>/`，无需另行确认；保留来源且不覆盖原件，
+不复制模型权重、Adam 状态或临时大张量。
 
 只有用户明确要求并确认分析方案后才建立 Record。它只记录分析问题与数据范围、结果、
 图表、结论边界和复现方式，不重复配置或启动过程。数值明细放 tables，图放 figures；
@@ -237,8 +244,11 @@ origin，也不将档案推到代码 GitHub。AGENTS.md 在两边保留长期研
 ssh scyb980\@NMCC-N46H1\@ssh.paracloud.com -p 2222
 ```
 
-训练代码目录为 `/data/run01/scyb980/cyt/src/DynamicOffPolicy`。共享模型、数据与环境
-在 `/data/run01/scyb980/cyt/src/verl-staleness`，通过忽略的 assets/.venv 符号链接复用。
+远端仓库主目录为 `/data/run01/scyb980/cyt/src/DynamicOffPolicy`；跨轮 KL 路线使用
+分支 `codex/delayed-anchor-kl` 与独立 worktree
+`/data/run01/scyb980/cyt/src/DynamicOffPolicy-delayed-kl`，新路线的代码与提交在该
+worktree 中进行，原目录保留 Fisher 基线。共享模型、数据与环境在
+`/data/run01/scyb980/cyt/src/verl-staleness`，通过忽略的 assets/.venv 符号链接复用。
 已有作业继续使用原部署；更新代码前核对工作区和使用该目录的作业，记录运行 commit。
 
 - 统一用远端 `examples/dynamic_staleness/submit_slurm.sh` 提交。正式配方沿用已验证的
@@ -246,7 +256,7 @@ ssh scyb980\@NMCC-N46H1\@ssh.paracloud.com -p 2222
   两组四卡并行不等于验证了单个八卡训练。GPU 数与 FSDP/Ray world size 一致，
   rollout TP 能整除 GPU 数。
 - sis_offload 在训练阶段外手动 offload actor parameter/optimizer 与 reference，
-  与 FSDP2 offload_policy 区分。Fisher 测量借用训练 GPU，其开销单独记录。
+  与 FSDP2 offload_policy 区分。额外 KL 前向借用训练 GPU，其端到端开销单独记录。
 - 训练使用按固定 revision 准备的持久化离线资产。可释放缓存与临时测量快照放
   `/tmp/ds-$SLURM_JOB_ID/`；原始数据、日志及明确要求保存的权重放持久目录。
 - 不覆盖旧输出或猜测最新目录；提交前核对空间和保存策略。没有终点权重或 Adam

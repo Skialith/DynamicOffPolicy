@@ -52,6 +52,7 @@ from verl.trainer.ppo.metric_utils import (
 from verl.trainer.ppo.reward import extract_reward
 from verl.trainer.ppo.staleness_metrics import optimizer_updates_per_rollout
 from verl.trainer.ppo.full_vocab_kl import preserve_rng_state, request_seed, select_rollout_positions
+from verl.trainer.ppo.delayed_anchor_kl import validate_delayed_kl_config
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
@@ -306,6 +307,10 @@ class RayPPOTrainer:
 
         self.use_prefix_grouper = self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False)
         self.use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+        validate_delayed_kl_config(self.config.actor_rollout_ref.actor, self._optimizer_updates_per_rollout())
+        if self.config.actor_rollout_ref.actor.get("full_kl_delayed_measurement", False):
+            if self.use_legacy_worker_impl == "disable":
+                raise ValueError("Delayed-anchor KL currently requires the legacy FSDP actor")
         if (
             self.config.actor_rollout_ref.actor.get("log_staleness_metrics", False)
             and self.use_legacy_worker_impl == "disable"
@@ -332,6 +337,8 @@ class RayPPOTrainer:
         )
         batch.batch["kl_positions"] = positions.to(batch.batch.device)
         batch.batch["kl_weights"] = weights.to(batch.batch.device)
+        batch.meta_info["full_kl_rollout_step"] = self.global_steps
+        batch.meta_info["full_kl_reuse_n"] = self._optimizer_updates_per_rollout()
         selected = torch.where((positions >= 0).any(-1))[0]
         output_dir = os.path.abspath(self.config.trainer.default_local_dir)
         context_dir = os.path.join(output_dir, "kl_contexts")
@@ -347,10 +354,6 @@ class RayPPOTrainer:
         })
         with open(os.path.join(context_dir, f"start_{self.optimizer_steps:04d}.pt"), "xb") as handle:
             torch.save(payload, handle)
-        if actor.get("full_kl_hvp_measurement", False):
-            batch.meta_info["hvp_context_path"] = os.path.join(context_dir, f"start_{self.optimizer_steps:04d}.pt")
-            batch.meta_info["hvp_output_dir"] = os.path.join(output_dir, "hvp_diagnostics")
-            batch.meta_info["hvp_reuse_n"] = self._optimizer_updates_per_rollout()
 
     def _append_full_kl(self, actor_metrics, update_count):
         output_dir = os.path.abspath(self.config.trainer.default_local_dir)
@@ -378,15 +381,44 @@ class RayPPOTrainer:
                 handle.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
         return records
 
+    def _append_delayed_kl(self, actor_metrics, update_count):
+        records_by_pair = {}
+        behavior_anchor = self.optimizer_steps - update_count
+        for key, value in actor_metrics.items():
+            if not key.startswith("delayed_kl/start_"):
+                continue
+            _, anchor_label, update_label, field = key.split("/")
+            anchor = int(anchor_label.removeprefix("start_"))
+            update = int(update_label.removeprefix("update_"))
+            records_by_pair.setdefault((anchor, update), {})[field] = float(value)
+        records = []
+        for (anchor, update), record in sorted(records_by_pair.items()):
+            if not behavior_anchor < update <= self.optimizer_steps or record["anchor_age"] != update - anchor:
+                raise RuntimeError("Delayed KL anchor/update metadata does not align")
+            if not all(np.isfinite(value) for value in record.values()):
+                raise FloatingPointError("Non-finite delayed KL record")
+            record.update({
+                "anchor_update": anchor, "optimizer_step": update, "behavior_anchor_update": behavior_anchor,
+                "policy_age": update - behavior_anchor - 1, "rollout_step": self.global_steps,
+                "reuse_n": update_count, "training_path": f"fixed_n{update_count}",
+                "context_set_id": f"start_{anchor:04d}", "direction": "older_to_newer",
+                "aggregation": "prompt_equal_then_position_equal", "vocabulary": "full", "temperature": 1.0,
+                "model_precision": "bf16_actor", "aggregation_precision": "fp64",
+                "seed": self.config.data.seed, "run": self.config.trainer.experiment_name,
+            })
+            records.append(record)
+        if records:
+            path = os.path.join(os.path.abspath(self.config.trainer.default_local_dir), "delayed_kl_updates.jsonl")
+            with open(path, "a", encoding="utf-8") as handle:
+                for record in records:
+                    handle.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
+        return records
+
     @staticmethod
     def _log_full_kl_by_update(logger, records):
         fields = (
-            "adjacent_kl", "cumulative_kl", "grad_norm", "update_norm", "lr_used", "policy_age",
-            "frozen_fisher_jvp_cosine", "frozen_fisher_jvp_residual_increment",
-            "frozen_fisher_jvp_reconstruction_error", "jvp_anchor_functional_kl",
-            "jvp_seconds",
-            "hvp_cumulative_kl", "hvp_fisher_quadratic", "hvp_spectral_bound", "hvp_lambda_max",
-            "hvp_displacement_norm", "hvp_update_norm", "hvp_residual", "hvp_measurement_seconds",
+            "adjacent_kl", "cumulative_kl", "grad_norm", "lr_used", "policy_age",
+            "delayed_kl_measurement_seconds",
         )
         for record in records:
             logger.log(
@@ -1546,6 +1578,7 @@ class RayPPOTrainer:
                 metrics = {}
                 timing_raw = {}
                 full_kl_records = []
+                delayed_kl_records = []
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1778,6 +1811,8 @@ class RayPPOTrainer:
                         self.optimizer_steps += actor_update_count
                         if self.config.actor_rollout_ref.actor.full_kl_measurement:
                             full_kl_records = self._append_full_kl(actor_output_metrics, actor_update_count)
+                            if self.config.actor_rollout_ref.actor.get("full_kl_delayed_measurement", False):
+                                delayed_kl_records = self._append_delayed_kl(actor_output_metrics, actor_update_count)
                         self._append_staleness_metrics(actor_output_metrics, actor_update_count)
                         metrics.update(actor_output_metrics)
 
@@ -1878,6 +1913,12 @@ class RayPPOTrainer:
                 logger.log(data=metrics, step=self.global_steps)
                 if full_kl_records:
                     self._log_full_kl_by_update(logger, full_kl_records)
+                for record in delayed_kl_records:
+                    logger.log(
+                        data={f"delayed_kl_by_update/anchor_age_{int(record['anchor_age']):02d}/cumulative_kl":
+                              record["cumulative_kl"]},
+                        step=int(record["optimizer_step"]), backend=["tensorboard"],
+                    )
 
                 progress_bar.update(1)
                 self.global_steps += 1

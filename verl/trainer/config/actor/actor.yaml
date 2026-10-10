@@ -110,27 +110,14 @@ full_kl_measurement: false
 # Keep prefix selection/logging while optionally skipping BF16 actor KL forwards
 full_kl_actor_measurement: true
 
-# Historical legacy-FSDP functional parameter JVP: paused; true is rejected.
-# Independent layerwise JVP/VJP remains active via full_kl_hvp_measurement.
-full_kl_jvp_measurement: false
+# Retain old contexts/distributions across rollouts for direct, no-grad KL.
+full_kl_delayed_measurement: false
 
-# Exact frozen-KL HVP on a separate, layer-parallel measurement model
-full_kl_hvp_measurement: false
-full_kl_hvp_compute_quadratic: true
+# True optimizer updates after each retained anchor, including the endpoint.
+full_kl_delayed_horizon: 8
 
-# Only the current layer VJP graph; detached layer inputs still stay on CPU.
-full_kl_hvp_vjp_cpu_offload: true
-
-# Current prefix only; pop each detached layer input after its VJP.
-full_kl_hvp_layer_inputs_cpu_offload: true
-
-# Initial-anchor synthetic resource check, separate from measured rollout prefixes.
-full_kl_hvp_stress_prefix_length: 0
-# 0 iterates until the eigenpair residual meets the tolerance.
-full_kl_hvp_steps: 0
-full_kl_hvp_tolerance: 0.001
-full_kl_hvp_visible_devices: ""
-full_kl_hvp_scratch: ""
+# Capture every k-th rollout, starting with the first rollout.
+full_kl_delayed_anchor_every_rollouts: 1
 
 # Global prompt groups sampled once per rollout, not per rank
 full_kl_num_prompts: 64

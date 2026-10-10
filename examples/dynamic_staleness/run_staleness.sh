@@ -98,40 +98,31 @@ MAX_ACTOR_CKPT_TO_KEEP=${MAX_ACTOR_CKPT_TO_KEEP:-1}
 SMOKE=${SMOKE:-0}
 DRY_RUN=${DRY_RUN:-0}
 FULL_KL_EXPERIMENT=${FULL_KL_EXPERIMENT:-0}
-FULL_KL_JVP=${FULL_KL_JVP:-0}
-FULL_KL_HVP=${FULL_KL_HVP:-0}
 FULL_KL_ACTOR_MEASUREMENT=${FULL_KL_ACTOR_MEASUREMENT:-1}
-HVP_COMPUTE_QUADRATIC=${HVP_COMPUTE_QUADRATIC:-1}
-HVP_VJP_CPU_OFFLOAD=${HVP_VJP_CPU_OFFLOAD:-1}
-HVP_STRESS_PREFIX_LENGTH=${HVP_STRESS_PREFIX_LENGTH:-0}
-HVP_LAYER_INPUTS_CPU_OFFLOAD=${HVP_LAYER_INPUTS_CPU_OFFLOAD:-1}
-if [[ ! "${HVP_LAYER_INPUTS_CPU_OFFLOAD}" =~ ^[01]$ ]]; then
-    echo "HVP_LAYER_INPUTS_CPU_OFFLOAD must be 0 or 1" >&2
+DELAYED_KL=${DELAYED_KL:-0}
+DELAYED_KL_HORIZON=${DELAYED_KL_HORIZON:-8}
+DELAYED_KL_ANCHOR_EVERY_ROLLOUTS=${DELAYED_KL_ANCHOR_EVERY_ROLLOUTS:-1}
+if [[ ! "${DELAYED_KL}" =~ ^[01]$ ]]; then
+    echo "DELAYED_KL must be 0 or 1" >&2
     exit 2
 fi
-if [[ ! "${HVP_VJP_CPU_OFFLOAD}" =~ ^[01]$ ]]; then
-    echo "HVP_VJP_CPU_OFFLOAD must be 0 or 1" >&2
+if [[ "${DELAYED_KL}" == 1 ]]; then
+    if [[ "${FULL_KL_EXPERIMENT}" != 1 || "${FULL_KL_ACTOR_MEASUREMENT}" != 1 ]]; then
+        echo "Delayed-anchor KL requires direct actor KL" >&2
+        exit 2
+    fi
+    if [[ ! "${DELAYED_KL_HORIZON}" =~ ^[1-9][0-9]*$ || ! "${DELAYED_KL_ANCHOR_EVERY_ROLLOUTS}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Delayed KL horizon and anchor interval must be positive integers" >&2
+        exit 2
+    fi
+fi
+# Removed routes: reject stale environment settings before starting any training.
+if [[ "${FULL_KL_JVP:-0}" != 0 || "${FULL_KL_HVP:-0}" != 0 || "${FISHER_VJP_N4_PREFLIGHT:-0}" != 0 ]]; then
+    echo "JVP/HVP/Fisher measurement has been removed from this branch" >&2
     exit 2
 fi
-if [[ ! "${FULL_KL_ACTOR_MEASUREMENT}" =~ ^[01]$ || ! "${HVP_COMPUTE_QUADRATIC}" =~ ^[01]$ ]]; then
-    echo "FULL_KL_ACTOR_MEASUREMENT and HVP_COMPUTE_QUADRATIC must be 0 or 1" >&2
-    exit 2
-fi
-if [[ "${FULL_KL_HVP}" != 0 && "${FULL_KL_HVP}" != 1 ]]; then
-    echo "FULL_KL_HVP must be 0 or 1" >&2
-    exit 2
-fi
-if [[ "${FULL_KL_HVP}" == 1 ]] && [[ "${FULL_KL_EXPERIMENT}" != 1 || "${FULL_KL_JVP}" != 0 || "${N_GPUS}" != 4 || "${RUNTIME_PROFILE}" != sis_offload ]]; then
-    echo "Exact HVP requires full-KL, no JVP, four GPUs and sis_offload" >&2
-    exit 2
-fi
-if [[ "${FULL_KL_JVP}" != 0 && "${FULL_KL_JVP}" != 1 ]]; then
-    echo "FULL_KL_JVP must be 0 or 1, got: ${FULL_KL_JVP}" >&2
-    exit 2
-fi
-# Historical functional JVP inside legacy FSDP is paused, including old recipes.
-if [[ "${FULL_KL_JVP}" == 1 ]]; then
-    echo "FULL_KL_JVP=1 is paused; initial legacy-FSDP functional JVP is retained in comments" >&2
+if [[ ! "${FULL_KL_ACTOR_MEASUREMENT}" =~ ^[01]$ ]]; then
+    echo "FULL_KL_ACTOR_MEASUREMENT must be 0 or 1" >&2
     exit 2
 fi
 if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
@@ -415,14 +406,9 @@ if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
     if [[ "${FULL_KL_ACTOR_MEASUREMENT}" == 1 ]]; then
         FULL_KL_ACTOR_BOOL=true
     fi
-    FULL_KL_JVP_BOOL=false
-    if [[ "${FULL_KL_JVP}" == 1 ]]; then
-        FULL_KL_JVP_BOOL=true
-    fi
     overrides+=(
         "actor_rollout_ref.actor.full_kl_measurement=true"
         "actor_rollout_ref.actor.full_kl_actor_measurement=${FULL_KL_ACTOR_BOOL}"
-        "actor_rollout_ref.actor.full_kl_jvp_measurement=${FULL_KL_JVP_BOOL}"
         "actor_rollout_ref.actor.full_kl_num_prompts=${KL_NUM_PROMPTS}"
         "actor_rollout_ref.actor.full_kl_positions_per_response=${KL_POSITIONS_PER_RESPONSE}"
         "actor_rollout_ref.actor.full_kl_seed=${KL_MEASUREMENT_SEED}"
@@ -433,43 +419,15 @@ if [[ "${FULL_KL_EXPERIMENT}" == 1 ]]; then
     )
 fi
 
-if [[ "${FULL_KL_HVP}" == 1 ]]; then
-    HVP_QUADRATIC_BOOL=false
-    if [[ "${HVP_COMPUTE_QUADRATIC}" == 1 ]]; then
-        HVP_QUADRATIC_BOOL=true
-    fi
-    HVP_VJP_CPU_OFFLOAD_BOOL=true
-    if [[ "${HVP_VJP_CPU_OFFLOAD}" == 0 ]]; then
-        HVP_VJP_CPU_OFFLOAD_BOOL=false
-    fi
-    HVP_LAYER_INPUTS_CPU_OFFLOAD_BOOL=true
-    if [[ "${HVP_LAYER_INPUTS_CPU_OFFLOAD}" == 0 ]]; then
-        HVP_LAYER_INPUTS_CPU_OFFLOAD_BOOL=false
-    fi
+if [[ "${DELAYED_KL}" == 1 ]]; then
     overrides+=(
-        "actor_rollout_ref.actor.full_kl_hvp_measurement=true"
-        "actor_rollout_ref.actor.full_kl_hvp_layer_inputs_cpu_offload=${HVP_LAYER_INPUTS_CPU_OFFLOAD_BOOL}"
-        "actor_rollout_ref.actor.full_kl_hvp_vjp_cpu_offload=${HVP_VJP_CPU_OFFLOAD_BOOL}"
-        "actor_rollout_ref.actor.full_kl_hvp_stress_prefix_length=${HVP_STRESS_PREFIX_LENGTH}"
-        "actor_rollout_ref.actor.full_kl_hvp_compute_quadratic=${HVP_QUADRATIC_BOOL}"
-        "actor_rollout_ref.actor.full_kl_hvp_steps=${HVP_POWER_STEPS:-0}"
-        "actor_rollout_ref.actor.full_kl_hvp_tolerance=${HVP_POWER_TOLERANCE:-0.001}"
-        "actor_rollout_ref.actor.full_kl_hvp_visible_devices='${CUDA_VISIBLE_DEVICES}'"
-        "actor_rollout_ref.actor.full_kl_hvp_scratch=${TMPDIR:?HVP requires Slurm job-local TMPDIR}/fisher-hvp"
+        "actor_rollout_ref.actor.full_kl_delayed_measurement=true"
+        "actor_rollout_ref.actor.full_kl_delayed_horizon=${DELAYED_KL_HORIZON}"
+        "actor_rollout_ref.actor.full_kl_delayed_anchor_every_rollouts=${DELAYED_KL_ANCHOR_EVERY_ROLLOUTS}"
     )
 fi
 
 if [[ "${DRY_RUN}" == 1 ]]; then
     exec "${PYTHON_BIN}" -m verl.trainer.main_ppo --cfg job "${overrides[@]}" "$@"
-fi
-if [[ "${FULL_KL_HVP}" == 1 ]]; then
-    "${PYTHON_BIN}" -m verl.trainer.main_ppo "${overrides[@]}" "$@"
-    validation_args=(--run-dir "${OUTPUT_DIR}" --updates "${REMAINING_UPDATES}" --reuse-n "${REUSE_N}"
-                     --prompts "${KL_NUM_PROMPTS}" --tolerance "${HVP_POWER_TOLERANCE:-0.001}"
-                     --scratch "${TMPDIR}/fisher-hvp")
-    if [[ "${HVP_COMPUTE_QUADRATIC}" == 0 ]]; then
-        validation_args+=(--skip-quadratic)
-    fi
-    exec "${PYTHON_BIN}" "${SCRIPT_DIR}/verify_training_fisher.py" "${validation_args[@]}"
 fi
 exec "${PYTHON_BIN}" -m verl.trainer.main_ppo "${overrides[@]}" "$@"

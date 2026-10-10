@@ -4,7 +4,6 @@ No generation, policy loss, or global random generator is used by selection.
 Vocabulary sums are exact (up to floating point); only contexts are sampled.
 """
 
-import math
 import random
 from contextlib import contextmanager
 
@@ -78,105 +77,6 @@ def full_vocabulary_kl(log_p, log_q, chunk_positions=8):
     return torch.cat(result) if result else torch.empty(0, dtype=torch.float64, device=log_p.device)
 
 
-def full_vocabulary_jvp_frozen_geometry(log_anchor, cumulative_logits_jvp, step_logits_jvp, chunk_positions=8):
-    """Frozen-anchor Fisher geometry from exact parameter-to-logit JVPs.
-
-    A logit directional derivative becomes a score directional derivative after
-    centering under the anchor policy.  The returned columns are cumulative,
-    step, current quadratic energy, and the cumulative/step cross term.
-    """
-    if log_anchor.shape != cumulative_logits_jvp.shape or log_anchor.shape != step_logits_jvp.shape:
-        raise ValueError("JVP geometry requires aligned [contexts, vocabulary] tensors")
-    if log_anchor.ndim != 2:
-        raise ValueError("JVP geometry requires [contexts, vocabulary] tensors")
-    outputs = []
-    for start in range(0, len(log_anchor), chunk_positions):
-        anchor = torch.log_softmax(log_anchor[start:start + chunk_positions].double(), dim=-1)
-        p_anchor = anchor.exp()
-        cumulative = cumulative_logits_jvp[start:start + chunk_positions].double().clone()
-        step = step_logits_jvp[start:start + chunk_positions].double().clone()
-        cumulative -= (p_anchor * cumulative).sum(-1, keepdim=True)
-        step -= (p_anchor * step).sum(-1, keepdim=True)
-        total = cumulative + step
-        outputs.append(torch.stack([
-            0.5 * (p_anchor * cumulative.square()).sum(-1),
-            0.5 * (p_anchor * step.square()).sum(-1),
-            0.5 * (p_anchor * total.square()).sum(-1),
-            (p_anchor * cumulative * step).sum(-1),
-        ], dim=-1))
-    if not outputs:
-        return torch.empty((0, 4), dtype=torch.float64, device=log_anchor.device)
-    result = torch.cat(outputs)
-    if not torch.isfinite(result).all():
-        raise FloatingPointError("Invalid frozen-anchor JVP geometry")
-    return result
-
-
-def actual_update_squared_norm(parameters, before, chunk_size=1 << 20):
-    """Norm of stored-parameter differences, not an AdamW reconstruction.
-
-    Before-values are CPU copies taken immediately before optimizer.step().
-    Chunked FP64 subtraction and reduction avoid a second full GPU model.
-    """
-    parameters = list(parameters)
-    if len(parameters) != len(before):
-        raise ValueError("Parameter snapshots must align")
-    total = torch.zeros((), dtype=torch.float64)
-    for parameter, previous in zip(parameters, before):
-        if previous.shape != parameter.shape:
-            raise ValueError("Parameter snapshot shape changed")
-        current = parameter.detach().reshape(-1)
-        previous = previous.reshape(-1)
-        for start in range(0, current.numel(), chunk_size):
-            delta = current[start:start + chunk_size].cpu().double() - previous[start:start + chunk_size].double()
-            total += delta.square().sum()
-    return total
-
-
-def adamw_parameter_updates(optimizer, lrs_used, chunk_size=16_777_216):
-    """Reconstruct each local AdamW parameter displacement after a completed step.
-
-    Callers enabling parameter JVPs need the local sharded tangent tensors.
-    """
-    if not isinstance(optimizer, torch.optim.AdamW):
-        raise TypeError("Update reconstruction currently supports torch.optim.AdamW only")
-    if len(lrs_used) != len(optimizer.param_groups):
-        raise ValueError("One applied learning rate is required for each optimizer group")
-    updates = {}
-    for group, lr_used in zip(optimizer.param_groups, lrs_used):
-        if group.get("differentiable", False) or group.get("capturable", False):
-            raise ValueError("Update reconstruction requires ordinary non-capturable AdamW")
-        beta1, beta2 = group["betas"]
-        weight_decay, eps = group["weight_decay"], group["eps"]
-        decay = 1.0 - float(lr_used) * weight_decay
-        if decay <= 0:
-            raise ValueError("AdamW multiplicative decay must be positive")
-        for parameter in group["params"]:
-            if parameter.grad is None:
-                continue
-            state = optimizer.state[parameter]
-            step_number = int(state["step"].item())
-            exp_avg = state["exp_avg"].detach().reshape(-1)
-            variance = state["max_exp_avg_sq"] if group["amsgrad"] else state["exp_avg_sq"]
-            variance = variance.detach().reshape(-1)
-            parameter_after = parameter.detach().reshape(-1)
-            bias_correction1 = 1.0 - beta1 ** step_number
-            bias_correction2_sqrt = math.sqrt(1.0 - beta2 ** step_number)
-            step_size = float(lr_used) / bias_correction1
-            update = torch.empty_like(parameter_after)
-            for start in range(0, parameter_after.numel(), chunk_size):
-                stop = min(start + chunk_size, parameter_after.numel())
-                denominator = variance[start:stop].sqrt() / bias_correction2_sqrt + eps
-                adam_delta = step_size * exp_avg[start:stop] / denominator
-                update[start:stop] = (
-                    -float(lr_used) * weight_decay * parameter_after[start:stop] - adam_delta
-                ) / decay
-            updates[id(parameter)] = update.view_as(parameter)
-    if not updates:
-        raise ValueError("AdamW step had no parameters with gradients")
-    return updates
-
-
 def score_context_row(model, row, device):
     """Score selected response positions in one unpadded, causal forward.
 
@@ -198,37 +98,3 @@ The logit immediately BEFORE each response token predicts that token.
     log_probs = torch.log_softmax(logits.float(), dim=-1).cpu()
     del output, logits
     return log_probs
-
-
-# HISTORICAL ONLY (2026-10-07): initial functional parameter JVP through legacy FSDP; paused.
-# def score_context_row_parameter_jvp(model, row, device, parameters, tangents, buffers):
-#     """Score one row at fixed parameters and return its parameter-to-logit JVP."""
-#     valid = row["attention_mask"].bool()
-#     ids = row["input_ids"][valid].unsqueeze(0).to(device)
-#     position_ids = row["position_ids"][valid].unsqueeze(0).to(device)
-#     selected = row["kl_positions"][row["kl_positions"] >= 0]
-#     prompt_width = row["input_ids"].numel() - row["responses"].numel()
-#     absolute = prompt_width + selected - 1
-#     indices = valid.long().cumsum(0)[absolute] - 1
-#     if (indices < 0).any() or not valid[absolute].all():
-#         raise ValueError("KL position does not have a valid causal prefix")
-#     indices = indices.to(device)
-
-#     def forward(parameter_values):
-#         output = torch.func.functional_call(
-#             model,
-#             (parameter_values, buffers),
-#             (),
-#             {
-#                 "input_ids": ids,
-#                 "attention_mask": None,
-#                 "position_ids": position_ids,
-#                 "use_cache": False,
-#             },
-#             strict=True,
-#         )
-#         return output.logits[0, indices, :].float()
-
-#     logits, logits_jvp = torch.func.jvp(forward, (parameters,), (tangents,))
-#     log_probs = torch.log_softmax(logits, dim=-1)
-#     return log_probs.detach().cpu(), logits_jvp.detach().float().cpu()

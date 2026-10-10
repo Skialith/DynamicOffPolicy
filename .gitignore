@@ -58,17 +58,12 @@ verl-staleness-code.zip
 # Project regression tests, standalone checks and GPU probes
 /tests/*
 !/tests/trainer/
-!/tests/workers/
 /tests/trainer/*
 !/tests/trainer/ppo/
 /tests/trainer/ppo/*
 !/tests/trainer/ppo/test_full_vocab_kl.py
 !/tests/trainer/ppo/test_staleness_metrics.py
-/tests/workers/*
-!/tests/workers/actor/
-/tests/workers/actor/*
-!/tests/workers/actor/test_training_fisher.py
-!/tests/workers/actor/test_exact_kl_hvp.py
+!/tests/trainer/ppo/test_delayed_anchor_kl.py
 
 # Keep only source files in the independent check/probe directories
 !/tests/README.md
@@ -80,10 +75,6 @@ verl-staleness-code.zip
 /tests/probes/*
 !/tests/probes/*.py
 !/tests/probes/*.sh
-!/tests/probes/historical/
-/tests/probes/historical/*
-!/tests/probes/historical/*.py
-!/tests/probes/historical/*.sh
 
 # Local research archive lives in its own repository
 /papers/
@@ -91,3 +82,6 @@ verl-staleness-code.zip
 experiments/**/scripts/plot_*.py
 experiments/**/scripts/analyze*.py
 experiments/**/scripts/summarize_*.py
+
+# Usage for the active direct-KL route
+!/examples/dynamic_staleness/DELAYED_ANCHOR_KL.md

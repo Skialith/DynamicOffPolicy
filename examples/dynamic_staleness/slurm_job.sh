@@ -15,9 +15,9 @@ SEED=${SEED:-1}
 RUNTIME_PROFILE=${RUNTIME_PROFILE:-memory_safe}
 
 case "${TARGET}" in
-    smoke|probe|adam_probe|performance_probe|kl_probe|jvp_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|fisher_fvp_probe|anchor|branch|n4_then_n8) ;;
+    smoke|probe|adam_probe|performance_probe|kl_probe|delayed_kl_probe|anchor|branch|n4_then_n8) ;;
     *)
-        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|jvp_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|fisher_fvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
+        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|delayed_kl_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
         exit 2
         ;;
 esac
@@ -94,7 +94,7 @@ case "${TARGET}" in
         EFFECTIVE_OUTPUT_ROOT=${SMOKE_ROOT}
         export SMOKE_ROOT
         ;;
-    probe|kl_probe|jvp_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|fisher_fvp_probe)
+    probe|kl_probe|delayed_kl_probe)
         OUTPUT_BASE_ROOT=${OUTPUT_ROOT:-${REPO_ROOT}/outputs/resource_probe}
         OUTPUT_ROOT=${OUTPUT_INSTANCE_ROOT:-${OUTPUT_BASE_ROOT}/${RUN_INSTANCE_TAG}}
         EFFECTIVE_OUTPUT_ROOT=${OUTPUT_ROOT}
@@ -184,28 +184,16 @@ echo "persistent_cache=${PERSISTENT_CACHE_ROOT} job_local_cache=${JOB_LOCAL_ROOT
 echo "execution_limits=actor_tokens_per_gpu:${ACTOR_MAX_TOKENS_PER_GPU},infer_tokens_per_gpu:${INFER_MAX_TOKENS_PER_GPU},rollout_batched_tokens:${ROLLOUT_MAX_BATCHED_TOKENS},rollout_max_seqs:${ROLLOUT_MAX_NUM_SEQS}"
 nvidia-smi -L
 
-if [[ "${FISHER_VJP_N4_PREFLIGHT:-0}" == 1 ]]; then
-    bash "${REPO_ROOT}/tests/checks/verify_vjp_gpu_n4_setup.sh"
+if [[ "${FULL_KL_HVP:-0}" != 0 || "${FULL_KL_JVP:-0}" != 0 || "${FISHER_VJP_N4_PREFLIGHT:-0}" != 0 ]]; then
+    echo "JVP/HVP/Fisher measurement has been removed from this branch" >&2
+    exit 2
 fi
-
 case "${TARGET}" in
-    fisher_fvp_probe)
-        exec bash "${REPO_ROOT}/tests/probes/run_fvp_storage_probe.sh" "$@"
+    delayed_kl_probe)
+        exec bash "${REPO_ROOT}/tests/probes/run_delayed_kl_probe.sh" "$@"
         ;;
     kl_probe)
         exec bash "${REPO_ROOT}/tests/probes/run_full_kl_probe.sh" "$@"
-        ;;
-    jvp_probe)
-        exec bash "${REPO_ROOT}/tests/probes/historical/run_full_kl_jvp_probe.sh" "$@"
-        ;;
-    jvp_compat_probe)
-        exec bash "${REPO_ROOT}/tests/probes/historical/run_fsdp_parameter_jvp_probe.sh" "$@"
-        ;;
-    fvp_compat_probe)
-        exec bash "${REPO_ROOT}/tests/probes/historical/run_fsdp_fisher_vector_product_probe.sh" "$@"
-        ;;
-    exact_hvp_probe)
-        exec bash "${REPO_ROOT}/tests/probes/run_exact_kl_hvp_probe.sh" "$@"
         ;;
     smoke)
         exec "${SCRIPT_DIR}/run_smoke.sh" "$@"
@@ -243,7 +231,7 @@ case "${TARGET}" in
         exec "${SCRIPT_DIR}/run_n4_then_n8.sh" "$@"
         ;;
     *)
-        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|jvp_probe|jvp_compat_probe|fvp_compat_probe|exact_hvp_probe|fisher_fvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
+        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|delayed_kl_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
         exit 2
         ;;
 esac

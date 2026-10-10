@@ -10,16 +10,17 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 
 case "${TARGET}" in
-    jvp_probe|jvp_compat_probe|fvp_compat_probe)
-        echo "${TARGET} is paused; historical JVP implementations are retained in comments" >&2
-        exit 2
-        ;;
-    smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|fisher_fvp_probe|anchor|branch|n4_then_n8) ;;
+    smoke|probe|adam_probe|performance_probe|kl_probe|delayed_kl_probe|anchor|branch|n4_then_n8) ;;
     *)
-        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|exact_hvp_probe|fisher_fvp_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
+        echo "Usage: $0 {smoke|probe|adam_probe|performance_probe|kl_probe|delayed_kl_probe|anchor|branch|n4_then_n8} [extra Hydra overrides...]" >&2
         exit 2
         ;;
 esac
+
+if [[ "${FULL_KL_HVP:-0}" != 0 || "${FULL_KL_JVP:-0}" != 0 || "${FISHER_VJP_N4_PREFLIGHT:-0}" != 0 ]]; then
+    echo "JVP/HVP/Fisher measurement has been removed from this branch" >&2
+    exit 2
+fi
 
 : "${PARTITION:?Set PARTITION to the Slurm queue shown by sinfo}"
 N_GPUS=${N_GPUS:-8}

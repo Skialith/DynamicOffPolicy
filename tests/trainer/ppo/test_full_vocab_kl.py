@@ -13,8 +13,7 @@ import numpy as np
 import torch
 
 from verl.trainer.ppo.full_vocab_kl import (
-    adamw_parameter_updates,
-    full_vocabulary_jvp_frozen_geometry, full_vocabulary_kl,
+    full_vocabulary_kl,
     make_update_scheduler, preserve_rng_state, request_seed, score_context_row,
     select_rollout_positions,
 )
@@ -31,24 +30,9 @@ def test_exact_kl_direction_self_and_chunking():
         full_vocabulary_kl(p.log(), q[:1].log())
 
 
-def test_parameter_jvp_fisher_geometry_matches_softmax_hessian():
-    logits = torch.tensor([[0.2, -0.4, 0.7], [-0.1, 0.5, 0.3]], dtype=torch.float64)
-    cumulative = torch.tensor([[0.3, -0.2, 0.1], [0.4, 0.2, -0.3]], dtype=torch.float64)
-    step = torch.tensor([[-0.1, 0.5, 0.2], [0.2, -0.4, 0.1]], dtype=torch.float64)
-    geometry = full_vocabulary_jvp_frozen_geometry(logits, cumulative, step, 1)
-    probabilities = logits.softmax(-1)
-
-    def energy(direction):
-        centered = direction - (probabilities * direction).sum(-1, keepdim=True)
-        return 0.5 * (probabilities * centered.square()).sum(-1)
-
-    assert torch.allclose(geometry[:, 0], energy(cumulative), atol=1e-12)
-    assert torch.allclose(geometry[:, 1], energy(step), atol=1e-12)
-    assert torch.allclose(geometry[:, 2], energy(cumulative + step), atol=1e-12)
-    assert torch.allclose(geometry[:, 2], geometry[:, 0] + geometry[:, 1] + geometry[:, 3], atol=1e-12)
 
 
-def test_full_kl_reduction_preserves_direct_kl_and_parameter_jvp_fields():
+def test_full_kl_reduction_matches_direct_weighted_kl():
     root = Path(__file__).parents[3]
     tree = ast.parse((root / "verl/workers/actor/dp_actor.py").read_text())
     method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_reduce_full_kl")
@@ -59,42 +43,15 @@ def test_full_kl_reduction_preserves_direct_kl_and_parameter_jvp_fields():
     previous = torch.tensor([[0.2, 0.2, 0.6], [0.3, 0.5, 0.2]], dtype=torch.float64).log()
     current = torch.tensor([[0.3, 0.2, 0.5], [0.2, 0.4, 0.4]], dtype=torch.float64).log()
     weights = torch.tensor([0.25, 0.75], dtype=torch.float64)
-    cumulative = torch.tensor([[0.3, -0.2, 0.1], [0.4, 0.2, -0.3]], dtype=torch.float64)
-    step = torch.tensor([[-0.1, 0.5, 0.2], [0.2, -0.4, 0.1]], dtype=torch.float64)
-    geometry = full_vocabulary_jvp_frozen_geometry(anchor, cumulative, step)
     with patch("torch.distributed.all_reduce"):
         direct = namespace["_reduce_full_kl"](actor, previous, anchor, current, weights)
-        measured = namespace["_reduce_full_kl"](
-            actor, previous, anchor, current, weights, (anchor, geometry, torch.zeros_like(weights))
-        )
     for key, p, q in (
         ("adjacent_kl", previous, current), ("cumulative_kl", anchor, current),
         ("previous_cumulative_kl", anchor, previous),
     ):
         expected = (full_vocabulary_kl(p, q) * weights).sum().item()
         assert math.isclose(direct[key], expected, rel_tol=1e-12)
-        assert measured[key] == direct[key]
     assert direct["context_count"] == 2 and direct["weight_sum"] == 1
-    for index, name in enumerate(("cumulative", "step", "current", "cross")):
-        expected = (geometry[:, index] * weights).sum().item()
-        assert math.isclose(measured[f"frozen_fisher_jvp_{name}"], expected, rel_tol=1e-12)
-    assert measured["jvp_anchor_functional_kl"] == measured["jvp_anchor_repeat_kl"] == 0
-    assert abs(measured["frozen_fisher_jvp_closure_error"]) < 1e-12
-    assert math.isclose(
-        measured["frozen_fisher_jvp_reconstruction_error"],
-        measured["frozen_fisher_jvp_residual_increment"], abs_tol=1e-12,
-    )
-
-
-def test_adamw_post_step_parameter_updates_reconstruction():
-    parameter = torch.nn.Parameter(torch.tensor([1.0, -2.0, 0.5], dtype=torch.float64))
-    optimizer = torch.optim.AdamW([parameter], lr=3e-4, betas=(0.8, 0.95), weight_decay=0.1, amsgrad=True)
-    for gradient in (torch.tensor([0.2, -0.4, 0.7]), torch.tensor([-0.3, 0.1, 0.5])):
-        before = parameter.detach().clone()
-        parameter.grad = gradient.to(parameter)
-        optimizer.step()
-        update = adamw_parameter_updates(optimizer, [3e-4], chunk_size=2)[id(parameter)]
-        assert torch.allclose(update, parameter.detach() - before, rtol=1e-10, atol=1e-15)
 
 
 def test_n4_n8_have_identical_actual_lrs():

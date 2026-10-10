@@ -166,18 +166,9 @@ class ActorConfig(BaseConfig):
     log_staleness_metrics: bool = False
     full_kl_measurement: bool = False
     full_kl_actor_measurement: bool = True
-    # Historical legacy-FSDP functional JVP; enabling it is rejected while paused.
-    full_kl_jvp_measurement: bool = False
-    full_kl_hvp_measurement: bool = False
-    full_kl_hvp_compute_quadratic: bool = True
-    full_kl_hvp_vjp_cpu_offload: bool = True
-    full_kl_hvp_layer_inputs_cpu_offload: bool = True
-    full_kl_hvp_stress_prefix_length: int = 0
-    # 0 iterates until the eigenpair residual meets the tolerance.
-    full_kl_hvp_steps: int = 0
-    full_kl_hvp_tolerance: float = 1e-3
-    full_kl_hvp_visible_devices: str = ""
-    full_kl_hvp_scratch: str = ""
+    full_kl_delayed_measurement: bool = False
+    full_kl_delayed_horizon: int = 8
+    full_kl_delayed_anchor_every_rollouts: int = 1
     full_kl_num_prompts: int = 64
     full_kl_positions_per_response: int = 8
     full_kl_seed: int = 20260903

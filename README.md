@@ -1,68 +1,36 @@
 # DynamicOffPolicy
 
-本仓库只管理远端训练源码、配置、必要提交/测量脚本、回归测试和代码使用说明。
-代码基于 verl 0.7.1，研究 Qwen3-8B-Base 全参数 GRPO 的动态 off-policy / staleness。
-研究 idea、共同口径和协作边界见 [AGENTS.md](AGENTS.md)。
+本仓库管理 Qwen3-8B-Base 全参数 GRPO 的训练源码，基于 verl 0.7.1。
+当前 `codex/delayed-anchor-kl` 分支研究纯前向跨轮 KL：缓存旧 rollout 的固定因果
+前缀和全词表分布，在后续真实更新后直接计算旧策略到当前模型的 KL。
+
+本分支已移除 JVP/HVP/Fisher 测量实现、训练回调、参数位移计算、相关配置和旧
+提交/probe 入口。原主 worktree 和 Git 历史保留旧路线。正常训练反向传播、
+标准 GRPO clip、逐 update KL/staleness 记录与 FSDP micro-batch 同步修复保留。
+
+## 入口与运行
+
+- [跨轮 KL 使用说明](examples/dynamic_staleness/DELAYED_ANCHOR_KL.md)
+- [提交配方](examples/dynamic_staleness/submit_delayed_kl.sh)：固定每次 update 的
+  256 prompt groups × 8 responses，提供 N=4/8 观测配方。
+- [Slurm 统一入口](examples/dynamic_staleness/submit_slurm.sh)：8B 训练和 GPU probe
+  只在 Slurm 计算节点执行。
+- [测试说明](tests/README.md)、[研究与协作约束](AGENTS.md)
+
+新 worktree 为 `/data/run01/scyb980/cyt/src/DynamicOffPolicy-delayed-kl`，
+原主 worktree 为 `/data/run01/scyb980/cyt/src/DynamicOffPolicy`。共享模型、数据
+和 Python 环境在 `/data/run01/scyb980/cyt/src/verl-staleness`，通过忽略的
+`assets` 和 `.venv` 符号链接复用。
+
+N=4 路径上的跨轮八步 KL 尚需与真实 N=8 路径对照；当前不自动升级 N。
 
 ## 仓库分工
 
-| 仓库 | 位置与内容 |
-| --- | --- |
-| 远端训练代码 | `/data/run01/scyb980/cyt/src/DynamicOffPolicy`；与本 GitHub 仓库同步 |
-| 本地研究档案 | `/Users/Workspace/dynamicStaleness`；独立本地 Git，保存论文、实验文档、分析脚本、派生表和图表，不配置本代码仓库的 origin |
+训练实现、配置、提交脚本和回归测试在本代码仓库管理。本地研究档案仓库
+`/Users/Workspace/dynamicStaleness` 单独保存论文、实验 README/Record、分析脚本、
+派生表和图表，以运行 commit 引用代码。原始产物、权重和环境不进入 Git。
+修改前检查工作区并保留用户改动；获得用户授权后才向
+[Skialith/DynamicOffPolicy](https://github.com/Skialith/DynamicOffPolicy) push。
 
-本地不维护训练框架源码。具体实验设置和结果在本地档案中记录，并引用远端代码 commit；
-代码仓库不包含论文、实验 README/Record、原始数据、表格、图表、权重或运行环境。
-两边各自保留 AGENTS.md，作为共同研究与协作边界。
-
-## 代码入口
-
-| 路径 | 用途 |
-| --- | --- |
-| `verl/` | 训练框架、逐 update KL/staleness 记录与 Fisher 测量接入 |
-| `examples/dynamic_staleness/` | 环境检查、数据准备、Slurm 提交与测量工具 |
-| `experiments/<experiment>/scripts/` | 对应设置的远端提交与测量脚本；分析/绘图脚本在本地档案仓库 |
-| `tests/trainer/ppo/`、`tests/workers/actor/` | 本项目的 KL/staleness/Fisher 回归测试 |
-| `scripts/`、`pyproject.toml`、`requirements*.txt` | 框架辅助工具、安装与依赖配置 |
-
-有限 logits/log-prob 差分代理已删除，真实全词表 KL 和当前 Fisher K/B 测量保留。
-训练侧 legacy FSDP functional 参数 JVP 已注释停用，保留最初逻辑考量；参数扰动、
-logits 中心差分近似 JVP 也已注释停用，列为最后实现备选。
-当前使用独立非 FSDP 模型的逐层参数/输入 JVP → softmax Fisher → 逐层 VJP，
-见 [layerwise_fisher.py](examples/dynamic_staleness/layerwise_fisher.py)。
-旧 JVP/FVP 联测入口拒绝启动，整网 double-backward 只保留为小模型数值参考。
-
-训练内 Fisher 测量不设置子进程时间上限。`HVP_POWER_STEPS=0`（默认）持续迭代至
-残差满足 `HVP_POWER_TOLERANCE`，正整数只用于显式指定的有限迭代 probe。
-等待测量时，各训练 rank 每秒同步就绪状态，因此通信超时不再充当测量时限。
-N=4/8 提交配方的 `TIME_LIMIT=0` 不设置人为作业时限。残差门槛可在提交时指定：
-
-```bash
-HVP_POWER_TOLERANCE=0.01 bash experiments/20261006_fisher_kqb_short_rollouts/scripts/submit_experiment.sh n4
-```
-
-门槛越大越容易提前收敛；该相对残差是 `||Fv-λv|| / ||Fv||`，并非 λ 的相对误差。
-
-## 运行与代码同步
-
-8B 训练和 GPU probe 在并行云 Slurm 执行，统一入口为
-[submit_slurm.sh](examples/dynamic_staleness/submit_slurm.sh)。例如现有 Fisher K/B 设置的
-提交入口为 [submit_experiment.sh](experiments/20261006_fisher_kqb_short_rollouts/scripts/submit_experiment.sh)；
-具体参数由本地实验 README 和对应提交脚本记录。
-
-共享模型、数据与 Python 环境在 `/data/run01/scyb980/cyt/src/verl-staleness`，
-代码目录通过忽略的 `.venv`、`assets` 符号链接复用。已有作业继续使用原部署。
-更新代码前核对工作区与使用该目录的作业，在可联网登录节点执行：
-
-```bash
-cd /data/run01/scyb980/cyt/src/DynamicOffPolicy
-git status --short
-git pull --ff-only origin main
-```
-
-代码在远端编辑、检查和提交；获得用户授权后再 push 到
-[Skialith/DynamicOffPolicy](https://github.com/Skialith/DynamicOffPolicy)。
-本地档案仓库不参与代码 push/pull。两边原有历史保留，不改写已发布提交。
-
-基础框架来自 [verl](https://github.com/verl-project/verl) 0.7.1，保留本项目定制实现。
-许可证与第三方声明见 [LICENSE](LICENSE) 和 [Notice.txt](Notice.txt)。
+基础框架来自 [verl](https://github.com/verl-project/verl) 0.7.1。许可证与第三方
+声明见 [LICENSE](LICENSE) 和 [Notice.txt](Notice.txt)。
